@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", "Sarabun", "Noto Sans Thai",
+    sans-serif;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition;
+}
+.btn-primary {
+  @apply btn bg-brand text-white hover:bg-brand-dark disabled:opacity-50;
+}
+.btn-blue {
+  @apply btn bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50;
+}
+.btn-ghost {
+  @apply btn bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50;
+}
+/* Clearly-muted disabled state (a plain opacity fade is hard to see on a white button) */
+.btn-ghost:disabled,
+.btn-ghost[disabled] {
+  @apply cursor-not-allowed bg-slate-100 text-slate-300 ring-slate-100 hover:bg-slate-100;
+}
+
+/* Small action buttons (edit / delete / soft) */
+.btn-xs {
+  @apply inline-flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition disabled:opacity-50;
+}
+.btn-edit {
+  @apply btn-xs bg-brand-light text-brand ring-1 ring-brand/20 hover:bg-brand hover:text-white;
+}
+.btn-danger {
+  @apply btn-xs bg-red-50 text-red-600 ring-1 ring-red-100 hover:bg-red-600 hover:text-white;
+}
+.btn-soft {
+  @apply btn-xs bg-slate-100 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-200;
+}
+.btn-success {
+  @apply btn-xs bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100 hover:bg-emerald-600 hover:text-white;
+}
+.btn-sky {
+  @apply btn-xs bg-sky-50 text-sky-700 ring-1 ring-sky-100 hover:bg-sky-500 hover:text-white;
+}
+.card {
+  @apply rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100;
+}
+.input {
+  @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/30;
+}
+.label {
+  @apply mb-1 block text-sm font-medium text-slate-600;
+}
+.badge {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+}
