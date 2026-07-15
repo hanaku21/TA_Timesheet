@@ -320,7 +320,7 @@ export default function TimesheetClient({ name, initialSectionId }) {
               const base = "relative aspect-square rounded-lg text-sm flex items-center justify-center select-none";
               let cls = "bg-slate-50 text-slate-700 hover:bg-brand-light cursor-pointer";
               let title = "";
-              if (st.kind === "out") cls = "bg-slate-50 text-slate-300 cursor-not-allowed";
+              if (st.kind === "out") { cls = "bg-red-50 text-red-300 cursor-not-allowed line-through"; title = t("legendOut"); }
               else if (st.kind === "blackout") { cls = "bg-red-50 text-red-300 cursor-not-allowed line-through"; title = st.reason || t("legendBlackout"); }
               else if (st.kind === "logged") { cls = "bg-emerald-500 text-white cursor-pointer"; title = st.entry.remark || t("legendSaved"); }
               else if (st.kind === "selected") cls = "bg-brand text-white cursor-pointer ring-2 ring-brand-dark";
@@ -337,7 +337,7 @@ export default function TimesheetClient({ name, initialSectionId }) {
             <span className="flex items-center gap-1"><i className="h-3 w-3 rounded bg-brand inline-block" /> {t("legendSelected")}</span>
             <span className="flex items-center gap-1"><i className="h-3 w-3 rounded bg-emerald-500 inline-block" /> {t("legendSaved")}</span>
             <span className="flex items-center gap-1"><i className="h-3 w-3 rounded bg-red-100 inline-block" /> {t("legendBlackout")}</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded bg-slate-100 inline-block" /> {t("legendOut")}</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded bg-red-100 inline-block" /> {t("legendOut")}</span>
           </div>
         </div>
 

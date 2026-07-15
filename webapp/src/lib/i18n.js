@@ -73,7 +73,7 @@ const T = {
   legendSelected: { th: "เลือกไว้", en: "Selected" },
   legendSaved: { th: "บันทึกแล้ว", en: "Saved" },
   legendBlackout: { th: "ห้ามลงเวลา", en: "Blackout" },
-  legendOut: { th: "นอกภาคเรียน", en: "Out of term" },
+  legendOut: { th: "นอกภาคการศึกษา", en: "Out of term" },
   selectedDates: { th: "วันที่เลือก + หมายเหตุ", en: "Selected dates + notes" },
   days: { th: "วัน", en: "days" },
   totalPrefix: { th: "รวม", en: "Total" },
