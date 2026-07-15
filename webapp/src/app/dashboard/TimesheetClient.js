@@ -19,9 +19,10 @@ function monthMatrix(year, month0) {
   return weeks;
 }
 
-export default function TimesheetClient({ name, initialSectionId }) {
+export default function TimesheetClient({ name, employmentType, initialSectionId }) {
   const locale = localeFromName(name);
   const t = makeT(locale);
+  const isScholarship = employmentType === "SCHOLARSHIP"; // ป.ตรี: no remark field
   const WD = WEEKDAYS[locale];
   const now = new Date();
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
@@ -381,15 +382,17 @@ export default function TimesheetClient({ name, initialSectionId }) {
                       />
                     </div>
                   )}
-                  <div className="mb-2">
-                    <label className="label">{t("remarkLabel")}</label>
-                    <input
-                      className="input py-1"
-                      placeholder={t("remarkPlaceholder")}
-                      value={remarks[s] || ""}
-                      onChange={(e) => setRemarks({ ...remarks, [s]: e.target.value })}
-                    />
-                  </div>
+                  {!isScholarship && (
+                    <div className="mb-2">
+                      <label className="label">{t("remarkLabel")}</label>
+                      <input
+                        className="input py-1"
+                        placeholder={t("remarkPlaceholder")}
+                        value={remarks[s] || ""}
+                        onChange={(e) => setRemarks({ ...remarks, [s]: e.target.value })}
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -435,11 +438,13 @@ export default function TimesheetClient({ name, initialSectionId }) {
                           value={editHours} onChange={(ev) => setEditHours(ev.target.value)} />
                       </div>
                     )}
-                    <div className="mb-2">
-                      <label className="label">{t("remarkLabel")}</label>
-                      <input className="input py-1" placeholder={t("remarkPlaceholder")}
-                        value={editRemark} onChange={(ev) => setEditRemark(ev.target.value)} />
-                    </div>
+                    {!isScholarship && (
+                      <div className="mb-2">
+                        <label className="label">{t("remarkLabel")}</label>
+                        <input className="input py-1" placeholder={t("remarkPlaceholder")}
+                          value={editRemark} onChange={(ev) => setEditRemark(ev.target.value)} />
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <button className="btn-blue flex-1 py-1 text-xs" title={t("save")} onClick={() => saveEdit(e)}><SaveIcon size={15} /> {t("save")}</button>
                       <button className="btn-ghost py-1 text-xs" onClick={cancelEdit}>{t("cancel")}</button>

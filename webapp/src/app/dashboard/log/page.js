@@ -18,7 +18,7 @@ export default async function LogPage({ searchParams }) {
           <h2 className="text-lg font-bold text-slate-800">{t("logTitle")}</h2>
           <Link href="/dashboard" className="btn-ghost text-sm">{t("backOverview")}</Link>
         </div>
-        <TimesheetClient name={session?.name} initialSectionId={initialSectionId} />
+        <TimesheetClient name={session?.name} employmentType={session?.emp} initialSectionId={initialSectionId} />
       </main>
     </div>
   );

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EMP_LABELS, EMP_BADGE, TH_MONTHS } from "@/lib/constants";
 import { thb, entryHours as calcHours, entryCost as calcCost, isModule } from "@/lib/calc";
-import Modal from "@/components/Modal";
 
 function entryHours(r) {
   return r.section ? calcHours(r.section, r) : 0;
@@ -18,15 +17,30 @@ function sumCost(list) {
   return Math.round(list.reduce((a, r) => a + entryCost(r), 0) * 100) / 100;
 }
 
+// group a user's entries by section -> [{ section, hours, cost }]
+function bySection(entries) {
+  const m = new Map();
+  entries.forEach((r) => {
+    const k = r.section?.id ?? "—";
+    if (!m.has(k)) m.set(k, { section: r.section, hours: 0, cost: 0 });
+    const g = m.get(k);
+    g.hours = Math.round((g.hours + entryHours(r)) * 100) / 100;
+    g.cost = Math.round((g.cost + entryCost(r)) * 100) / 100;
+  });
+  return [...m.values()].sort((a, b) =>
+    (a.section?.course?.code || "").localeCompare(b.section?.course?.code || "")
+  );
+}
+
 export default function TimesheetViewer() {
   const now = new Date();
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [curriculum, setCurriculum] = useState("");
   const [type, setType] = useState("");
   const [term, setTerm] = useState("");
+  const [q, setQ] = useState("");
   const [data, setData] = useState({ rows: [], curricula: [], terms: [] });
   const [loading, setLoading] = useState(false);
-  const [groupBy, setGroupBy] = useState("user"); // user | date
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,7 +60,23 @@ export default function TimesheetViewer() {
   const [yy, mm] = month.split("-").map(Number);
   const rows = data.rows || [];
 
-  // group by user
+  // clamp the month switcher to the selected term's range (เปิดเทอม → ปิดเทอม)
+  const activeTerm = (data.terms || []).find((t) => t.code === term);
+  const minMonth = activeTerm?.start_date ? activeTerm.start_date.slice(0, 7) : null;
+  const maxMonth = activeTerm?.end_date ? activeTerm.end_date.slice(0, 7) : null;
+
+  useEffect(() => {
+    if (!minMonth && !maxMonth) return;
+    setMonth((m) => {
+      if (minMonth && m < minMonth) return minMonth;
+      if (maxMonth && m > maxMonth) return maxMonth;
+      return m;
+    });
+  }, [minMonth, maxMonth]);
+
+  const canPrev = !minMonth || month > minMonth;
+  const canNext = !maxMonth || month < maxMonth;
+
   const byUser = useMemo(() => {
     const m = new Map();
     rows.forEach((r) => {
@@ -54,49 +84,38 @@ export default function TimesheetViewer() {
       if (!m.has(k)) m.set(k, { user: r.user, entries: [] });
       m.get(k).entries.push(r);
     });
-    return [...m.values()].sort((a, b) =>
-      (a.user?.full_name || "").localeCompare(b.user?.full_name || "", "th")
-    );
-  }, [rows]);
-
-  function exportCsv() {
-    const header = ["ผู้ช่วยสอน", "ประเภทการจ้าง", "อีเมล", "รหัส/TOR", "วันที่", "รหัสวิชา", "ชื่อวิชา", "ตอน", "หลักสูตร", "ประเภท", "เวลา", "ชั่วโมง", "ค่าจ้าง(บาท)", "หมายเหตุ"];
-    const lines = [header.join(",")];
-    rows.forEach((r) => {
-      const cells = [
-        r.user?.full_name, EMP_LABELS[r.user?.employment_type] || r.user?.employment_type,
-        r.user?.email, r.user?.student_id || r.user?.tor_number || "",
-        r.work_date, r.section?.course?.code, r.section?.course?.name,
-        r.section?.section, r.section?.curriculum?.code, r.section?.teaching_type,
-        `${r.section?.start_time || ""}-${r.section?.end_time || ""}`,
-        entryHours(r), entryCost(r), r.remark || "",
-      ].map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
-      lines.push(cells.join(","));
-    });
-    const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `timesheet_${month}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+    let list = [...m.values()];
+    if (q.trim()) {
+      const needle = q.trim().toLowerCase();
+      list = list.filter((g) =>
+        (g.user?.full_name || "").toLowerCase().includes(needle) ||
+        (g.user?.email || "").toLowerCase().includes(needle)
+      );
+    }
+    return list.sort((a, b) => (a.user?.full_name || "").localeCompare(b.user?.full_name || "", "th"));
+  }, [rows, q]);
 
   function shiftMonth(delta) {
     const dt = new Date(yy, mm - 1 + delta, 1);
-    setMonth(`${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`);
+    const next = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+    if (minMonth && next < minMonth) return;
+    if (maxMonth && next > maxMonth) return;
+    setMonth(next);
   }
+
+  const dl = (base, uid, sid) =>
+    `${base}?user_id=${uid}&month=${month}&term=${term}${sid ? `&section_id=${sid}` : ""}`;
 
   return (
     <div className="space-y-4">
       {/* Filters */}
       <div className="card flex flex-wrap items-end gap-3">
         <div className="flex items-center gap-2">
-          <button className="btn-ghost" onClick={() => shiftMonth(-1)}>←</button>
+          <button className="btn-ghost" disabled={!canPrev} onClick={() => shiftMonth(-1)}>←</button>
           <div className="min-w-[140px] text-center font-semibold text-slate-700">
             {TH_MONTHS[mm - 1]} {yy + 543}
           </div>
-          <button className="btn-ghost" onClick={() => shiftMonth(1)}>→</button>
+          <button className="btn-ghost" disabled={!canNext} onClick={() => shiftMonth(1)}>→</button>
         </div>
         <div>
           <label className="label">ปีการศึกษา</label>
@@ -124,72 +143,103 @@ export default function TimesheetViewer() {
             ))}
           </select>
         </div>
-        <div>
-          <label className="label">มุมมอง</label>
-          <select className="input" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
-            <option value="user">จัดกลุ่มตามผู้ช่วยสอน</option>
-            <option value="date">เรียงตามวันที่</option>
-          </select>
-        </div>
-        <div className="ml-auto">
-          <button className="btn-ghost" onClick={exportCsv} disabled={rows.length === 0}>
-            ⬇ ส่งออก CSV
-          </button>
+        <div className="min-w-[180px] flex-1">
+          <label className="label">ค้นหาผู้ช่วยสอน</label>
+          <input className="input" placeholder="ชื่อ / อีเมล" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="วันทำงานรวม" value={rows.length} />
+      <div className="grid grid-cols-3 gap-3">
         <Stat label="ผู้ช่วยสอน" value={byUser.length} />
         <Stat label="รวมชั่วโมง" value={sumHours(rows)} />
         <Stat label="รวมค่าจ้าง (บาท)" value={thb(sumCost(rows))} accent="emerald" />
       </div>
 
       {loading && <p className="text-sm text-slate-400">กำลังโหลด...</p>}
-      {!loading && rows.length === 0 && (
+      {!loading && byUser.length === 0 && (
         <div className="card text-center text-sm text-slate-400">ไม่มีข้อมูลในเดือนนี้</div>
       )}
 
-      {/* Grouped by user */}
-      {!loading && groupBy === "user" && byUser.map((g) => (
-        <div key={g.user?.id} className="card">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-slate-800">{g.user?.full_name}</div>
-              <div className="text-xs text-slate-400">{g.user?.email}</div>
+      {/* One card per TA */}
+      {!loading && byUser.map((g) => {
+        const secs = bySection(g.entries);
+        const uid = g.user?.id;
+        return (
+          <div key={uid} className="card">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-semibold text-slate-800">
+                  {g.user?.title} {g.user?.full_name}
+                  {g.user?.employment_type !== "TOR" && g.user?.student_id && (
+                    <span className="ml-2 text-xs font-normal text-slate-400">รหัสนักศึกษา {g.user.student_id}</span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-400">{g.user?.email}</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`badge ${EMP_BADGE[g.user?.employment_type] || ""}`}>
+                  {EMP_LABELS[g.user?.employment_type] || g.user?.employment_type}
+                </span>
+                <span className="badge bg-slate-100 text-slate-600">{sumHours(g.entries)} ชม.</span>
+                <span className="badge bg-emerald-100 text-emerald-700">{thb(sumCost(g.entries))} บาท</span>
+                <a className="btn-edit" href={dl("/api/timesheet/export", uid)}>⬇ .xlsx</a>
+                <a className="btn-soft" href={dl("/api/timesheet/export-pdf", uid)}>⬇ .pdf</a>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className={`badge ${EMP_BADGE[g.user?.employment_type] || ""}`}>
-                {EMP_LABELS[g.user?.employment_type] || g.user?.employment_type}
-              </span>
-              <span className="badge bg-brand-light text-brand">{g.entries.length} วัน</span>
-              <span className="badge bg-slate-100 text-slate-600">{sumHours(g.entries)} ชม.</span>
-              <span className="badge bg-emerald-100 text-emerald-700">{thb(sumCost(g.entries))} บาท</span>
-              <a
-                className="btn-ghost text-xs"
-                href={`/api/timesheet/export?user_id=${g.user?.id}&month=${month}&term=${term}`}
-              >
-                ⬇ รวมไฟล์ .xlsx
-              </a>
-              <a
-                className="btn-ghost text-xs"
-                href={`/api/timesheet/export-split?user_id=${g.user?.id}&month=${month}&term=${term}`}
-              >
-                ⬇ แยก section .zip
-              </a>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-brand-light text-left text-xs font-bold text-slate-700">
+                    <th className="px-3 py-2">วิชา</th>
+                    <th className="px-3 py-2">ตอน</th>
+                    <th className="px-3 py-2">ประเภท</th>
+                    <th className="px-3 py-2 text-right">ชั่วโมง</th>
+                    <th className="px-3 py-2 text-right">ยอดเงิน (บาท)</th>
+                    <th className="px-3 py-2 text-right">ดาวน์โหลด</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {secs.map(({ section, hours, cost }) => (
+                    <tr key={section?.id} className="odd:bg-white even:bg-slate-50">
+                      <td className="px-3 py-2">
+                        <span className="font-medium text-slate-700">{section?.course?.code}</span>{" "}
+                        <span className="text-slate-500">{section?.course?.name}</span>
+                        {g.user?.employment_type === "TOR" && (
+                          <div className="text-xs text-amber-700">เลข TOR: {section?.tor_number || g.user?.tor_number || "—"}</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">{section?.section}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <span className={`badge ${section?.teaching_type === "LAB" ? "bg-sky-100 text-sky-700" : "bg-violet-100 text-violet-700"}`}>
+                          {isModule(section) ? "MODULE" : (section?.teaching_type || "—")}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-600">{hours}</td>
+                      <td className="px-3 py-2 text-right font-medium text-emerald-700">{thb(cost)}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <div className="flex justify-end gap-1.5">
+                          <a className="btn-edit" href={dl("/api/timesheet/export", uid, section?.id)}>.xlsx</a>
+                          <a className="btn-soft" href={dl("/api/timesheet/export-pdf", uid, section?.id)}>.pdf</a>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-slate-200 text-xs font-bold text-slate-700">
+                    <td className="px-3 py-2" colSpan={3}>รวม {secs.length} วิชา/ตอน</td>
+                    <td className="px-3 py-2 text-right">{sumHours(g.entries)}</td>
+                    <td className="px-3 py-2 text-right text-emerald-700">{thb(sumCost(g.entries))}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
-          <Table entries={g.entries} showUser={false} reload={load} />
-        </div>
-      ))}
-
-      {/* Flat by date */}
-      {!loading && groupBy === "date" && rows.length > 0 && (
-        <div className="card">
-          <Table entries={rows} showUser={true} reload={load} />
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -199,110 +249,6 @@ function Stat({ label, value, accent }) {
     <div className="card py-3">
       <div className={`text-2xl font-bold ${accent === "emerald" ? "text-emerald-600" : "text-brand"}`}>{value}</div>
       <div className="text-xs text-slate-500">{label}</div>
-    </div>
-  );
-}
-
-async function deleteEntry(r, reload) {
-  if (!confirm(`ลบการลงเวลา ${r.work_date}?`)) return;
-  await fetch(`/api/admin/entry?id=${r.id}`, { method: "DELETE" });
-  reload && reload();
-}
-
-function Table({ entries, showUser, reload }) {
-  const sorted = entries.slice().sort((a, b) => a.work_date.localeCompare(b.work_date));
-  const [edit, setEdit] = useState(null); // { id, work_date, remark }
-
-  async function saveEdit(e) {
-    e.preventDefault();
-    const body = { id: edit.id, work_date: edit.work_date, remark: edit.remark };
-    if (edit.isModule) body.hours = edit.hours;
-    await fetch("/api/admin/entry", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setEdit(null);
-    reload && reload();
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-brand-light text-left text-xs font-bold text-slate-700">
-            <th className="px-3 py-2">วันที่</th>
-            {showUser && <th className="px-3 py-2">ผู้ช่วยสอน</th>}
-            <th className="px-3 py-2">วิชา / ตอน</th>
-            <th className="px-3 py-2">หลักสูตร</th>
-            <th className="px-3 py-2">ประเภท</th>
-            <th className="px-3 py-2 text-right">ชม.</th>
-            <th className="px-3 py-2 text-right">ค่าจ้าง</th>
-            <th className="px-3 py-2">หมายเหตุ</th>
-            <th className="px-3 py-2 text-right">จัดการ</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r) => (
-            <tr key={r.id} className="odd:bg-white even:bg-slate-50 hover:bg-brand-light/40">
-              <td className="px-3 py-2 whitespace-nowrap font-medium text-slate-700">{r.work_date}</td>
-              {showUser && <td className="px-3 py-2">{r.user?.full_name}</td>}
-              <td className="px-3 py-2">
-                <span className="text-slate-700">{r.section?.course?.code}</span>{" "}
-                <span className="text-slate-400">{r.section?.course?.name}</span>{" "}
-                <span className="text-slate-400">· ตอน {r.section?.section}</span>
-              </td>
-              <td className="px-3 py-2">{r.section?.curriculum?.code}</td>
-              <td className="px-3 py-2">{r.section?.teaching_type}</td>
-              <td className="px-3 py-2 text-right text-slate-600">{entryHours(r)}</td>
-              <td className="px-3 py-2 text-right text-emerald-700">{thb(entryCost(r))}</td>
-              <td className="px-3 py-2 text-slate-500">{r.remark || "—"}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-right">
-                <div className="flex justify-end gap-1.5">
-                  <button className="btn-edit" onClick={() => setEdit({ id: r.id, work_date: r.work_date, remark: r.remark || "", isModule: isModule(r.section) || r.hours != null, hours: r.hours ?? "" })}>แก้ไข</button>
-                  <button className="btn-danger" onClick={() => deleteEntry(r, reload)}>ลบ</button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-slate-200 text-xs font-bold text-slate-700">
-            <td className="px-3 py-2" colSpan={showUser ? 5 : 4}>รวม {sorted.length} วัน</td>
-            <td className="px-3 py-2 text-right">{sumHours(sorted)}</td>
-            <td className="px-3 py-2 text-right text-emerald-700">{thb(sumCost(sorted))}</td>
-            <td /><td />
-          </tr>
-        </tfoot>
-      </table>
-
-      <Modal open={!!edit} onClose={() => setEdit(null)} title="แก้ไขการลงเวลา">
-        {edit && (
-          <form onSubmit={saveEdit} className="space-y-3">
-            <div>
-              <label className="label">วันที่</label>
-              <input type="date" className="input" value={edit.work_date}
-                onChange={(e) => setEdit({ ...edit, work_date: e.target.value })} required />
-            </div>
-            {edit.isModule && (
-              <div>
-                <label className="label">จำนวนชั่วโมง (Module)</label>
-                <input type="number" min="0" step="0.5" className="input" value={edit.hours}
-                  onChange={(e) => setEdit({ ...edit, hours: e.target.value })} />
-              </div>
-            )}
-            <div>
-              <label className="label">หมายเหตุ</label>
-              <textarea className="input min-h-[70px]" value={edit.remark}
-                onChange={(e) => setEdit({ ...edit, remark: e.target.value })} />
-            </div>
-            <div className="flex justify-end gap-2">
-              <button type="button" className="btn-ghost" onClick={() => setEdit(null)}>ยกเลิก</button>
-              <button className="btn-primary">บันทึก</button>
-            </div>
-          </form>
-        )}
-      </Modal>
     </div>
   );
 }

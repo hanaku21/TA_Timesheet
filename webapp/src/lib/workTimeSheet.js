@@ -46,29 +46,30 @@ function avoidLunch(cursor, hours) {
   return cursor;
 }
 
-// Split one day's total hours into rows.
-//   - A FULL day (>= 8 hr) uses the fixed blocks: Pre 2, Support 2, Post 4
-//     (any hours beyond 8 become a trailing Overtime row).
-//   - A PARTIAL day (< 8 hr) is entirely "Overtime Teaching", laid across the
-//     lunch break: up to 4 hr in the morning (08:00–12:00), the rest in the
-//     afternoon (from 13:00).
+// Split one day's total hours into rows by filling the blocks in order —
+// Pre (up to 2), Support (up to 2), Post (up to 4) — each taking as much of the
+// remaining hours as it can (partial blocks allowed). Anything beyond 8 hr
+// becomes an "Overtime Teaching" row. Special case: a whole day under 3 hr is
+// booked as a single "Support Teaching" row.
+//   e.g. 3h -> Pre 2 / Support 1 ; 6h -> Pre 2 / Support 2 / Post 2 ;
+//        7h -> Pre 2 / Support 2 / Post 3 ; 8h -> Pre 2 / Support 2 / Post 4
 export function splitDayIntoBlocks(totalHours) {
-  const rem = round2(totalHours);
-  const FULL = BLOCKS.reduce((a, b) => a + b.size, 0); // 8
+  let rem = round2(totalHours);
+  if (rem <= EPS) return [];
 
-  if (rem >= FULL - EPS) {
-    const out = BLOCKS.map((b) => ({ label: b.label, hours: b.size }));
-    const extra = round2(rem - FULL);
-    if (extra > EPS) out.push({ label: "Overtime Teaching", hours: extra });
-    return out;
-  }
+  // A whole day of less than 3 hours is booked as a single "Support Teaching" row.
+  if (rem < 3 - EPS) return [{ label: "Support Teaching", hours: rem }];
 
-  // partial day -> all Overtime, morning chunk (<=4h) then afternoon chunk
   const out = [];
-  const morning = round2(Math.min(rem, 4));
-  if (morning > EPS) out.push({ label: "Overtime Teaching", hours: morning });
-  const afternoon = round2(rem - morning);
-  if (afternoon > EPS) out.push({ label: "Overtime Teaching", hours: afternoon });
+  for (const b of BLOCKS) {
+    if (rem <= EPS) break;
+    const take = round2(Math.min(b.size, rem));
+    if (take > EPS) {
+      out.push({ label: b.label, hours: take });
+      rem = round2(rem - take);
+    }
+  }
+  if (rem > EPS) out.push({ label: "Overtime Teaching", hours: rem });
   return out;
 }
 

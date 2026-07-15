@@ -28,12 +28,14 @@ export default function BlackoutManager() {
     });
   }
 
-  async function create(e) {
+  const editing = !!form?.id;
+
+  async function save(e) {
     e.preventDefault();
     setMsg(null);
     setLoading(true);
     const res = await fetch("/api/admin/blackouts", {
-      method: "POST",
+      method: editing ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
@@ -78,24 +80,35 @@ export default function BlackoutManager() {
                   )}
                 </div>
               </div>
-              <button className="btn-danger" onClick={() => remove(p.id)}>ลบ</button>
+              <div className="flex shrink-0 gap-1.5">
+                <button className="btn-edit" onClick={() => { setMsg(null); setForm({ id: p.id, start_date: p.start_date, end_date: p.end_date, reason: p.reason || "", curriculum_ids: [...(p.curriculum_ids || [])] }); }}>แก้ไข</button>
+                <button className="btn-danger" onClick={() => remove(p.id)}>ลบ</button>
+              </div>
             </div>
           ))}
         </div>
       </div>
 
-      <Modal open={!!form} onClose={() => setForm(null)} title="เพิ่มช่วงวันที่ห้ามลงเวลา">
+      <Modal open={!!form} onClose={() => setForm(null)} title={editing ? "แก้ไขช่วงวันที่ห้ามลงเวลา" : "เพิ่มช่วงวันที่ห้ามลงเวลา"}>
         {form && (
-          <form onSubmit={create} className="space-y-3">
+          <form onSubmit={save} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">วันเริ่มต้น</label>
                 <input type="date" className="input" value={form.start_date}
-                  onChange={(e) => setForm({ ...form, start_date: e.target.value })} required />
+                  onChange={(e) => {
+                    const start = e.target.value;
+                    // default วันสิ้นสุด = วันเริ่มต้น (ถ้ายังว่าง หรือมาก่อนวันเริ่ม)
+                    setForm((f) => ({
+                      ...f,
+                      start_date: start,
+                      end_date: !f.end_date || f.end_date < start ? start : f.end_date,
+                    }));
+                  }} required />
               </div>
               <div>
                 <label className="label">วันสิ้นสุด</label>
-                <input type="date" className="input" value={form.end_date}
+                <input type="date" className="input" value={form.end_date} min={form.start_date || undefined}
                   onChange={(e) => setForm({ ...form, end_date: e.target.value })} required />
               </div>
             </div>
@@ -127,7 +140,7 @@ export default function BlackoutManager() {
             )}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-ghost" onClick={() => setForm(null)}>ยกเลิก</button>
-              <button className="btn-primary" disabled={loading}>{loading ? "กำลังบันทึก..." : "เพิ่ม"}</button>
+              <button className="btn-primary" disabled={loading}>{loading ? "กำลังบันทึก..." : editing ? "บันทึก" : "เพิ่ม"}</button>
             </div>
           </form>
         )}

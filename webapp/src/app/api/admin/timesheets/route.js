@@ -26,9 +26,9 @@ export async function GET(req) {
     .from("timesheet_entries")
     .select(
       `id, work_date, remark, hours,
-       user:users ( id, full_name, employment_type, email, student_id, tor_number ),
+       user:users ( id, title, full_name, employment_type, email, student_id, tor_number ),
        section:sections (
-         id, section, teaching_type, teaching_days, curriculum_id, start_time, end_time, rate,
+         id, section, teaching_type, teaching_days, curriculum_id, start_time, end_time, rate, tor_number,
          course:courses ( code, name ),
          curriculum:curricula ( id, code, name )
        )`
@@ -45,7 +45,7 @@ export async function GET(req) {
   if (type) rows = rows.filter((r) => r.user?.employment_type === type);
 
   const { data: curricula } = await supabase.from("curricula").select("*").order("id");
-  const { data: terms } = await supabase.from("terms").select("code, name, is_active").order("code");
+  const { data: terms } = await supabase.from("terms").select("code, name, is_active, start_date, end_date").order("code");
 
   return NextResponse.json({ rows, curricula: curricula || [], terms: terms || [], activeTerm: active.code, term });
 }

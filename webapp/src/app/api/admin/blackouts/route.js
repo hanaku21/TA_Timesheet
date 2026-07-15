@@ -64,6 +64,37 @@ export async function POST(req) {
   return NextResponse.json({ ok: true, id: period.id });
 }
 
+// PATCH — update a blackout period { id, start_date, end_date, reason, curriculum_ids:[] }
+export async function PATCH(req) {
+  if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const supabase = getSupabase();
+  const { id, start_date, end_date, reason, curriculum_ids } = await req.json();
+
+  if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 });
+  if (!start_date || !end_date) {
+    return NextResponse.json({ error: "กรุณาเลือกช่วงวันที่" }, { status: 400 });
+  }
+  if (end_date < start_date) {
+    return NextResponse.json({ error: "วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น" }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from("blackout_periods")
+    .update({ start_date, end_date, reason: reason || null })
+    .eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // replace the curriculum links
+  await supabase.from("blackout_curricula").delete().eq("blackout_id", id);
+  if (Array.isArray(curriculum_ids) && curriculum_ids.length > 0) {
+    const rows = curriculum_ids.map((cid) => ({ blackout_id: id, curriculum_id: cid }));
+    const { error: e2 } = await supabase.from("blackout_curricula").insert(rows);
+    if (e2) return NextResponse.json({ error: e2.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
 // DELETE — ?id=
 export async function DELETE(req) {
   if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
