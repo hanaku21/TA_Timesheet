@@ -50,7 +50,7 @@ export default function LoginPage() {
               className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@cmu.ac.th"
+              placeholder="อีเมลที่ใช้สมัครในระบบ EMS"
               required
             />
           </div>

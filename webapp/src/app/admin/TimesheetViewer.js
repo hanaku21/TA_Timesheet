@@ -42,23 +42,29 @@ export default function TimesheetViewer() {
   const [data, setData] = useState({ rows: [], curricula: [], terms: [] });
   const [loading, setLoading] = useState(false);
 
+  // Only (month, term) hit the server. curriculum/type/search are filtered
+  // client-side from the already-loaded rows, so those changes are instant.
   const load = useCallback(async () => {
     setLoading(true);
     const qs = new URLSearchParams({ month });
-    if (curriculum) qs.set("curriculum", curriculum);
-    if (type) qs.set("type", type);
     if (term) qs.set("term", term);
     const res = await fetch(`/api/admin/timesheets?${qs}`);
     const d = await res.json();
     setData(d);
     if (!term && d.term) setTerm(d.term);
     setLoading(false);
-  }, [month, curriculum, type, term]);
+  }, [month, term]);
 
   useEffect(() => { load(); }, [load]);
 
   const [yy, mm] = month.split("-").map(Number);
-  const rows = data.rows || [];
+  // client-side curriculum + type filtering (no refetch)
+  const rows = useMemo(() => {
+    let r = data.rows || [];
+    if (curriculum) r = r.filter((x) => String(x.section?.curriculum_id) === String(curriculum));
+    if (type) r = r.filter((x) => x.user?.employment_type === type);
+    return r;
+  }, [data.rows, curriculum, type]);
 
   // clamp the month switcher to the selected term's range (เปิดเทอม → ปิดเทอม)
   const activeTerm = (data.terms || []).find((t) => t.code === term);

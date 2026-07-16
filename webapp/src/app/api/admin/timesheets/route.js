@@ -22,30 +22,38 @@ export async function GET(req) {
   const monthStart = `${month}-01`;
   const monthEnd = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
 
-  const { data, error } = await supabase
-    .from("timesheet_entries")
-    .select(
-      `id, work_date, remark, hours,
-       user:users ( id, title, full_name, employment_type, email, student_id, tor_number ),
-       section:sections (
-         id, section, teaching_type, teaching_days, curriculum_id, start_time, end_time, rate, tor_number,
-         course:courses ( code, name ),
-         curriculum:curricula ( id, code, name )
-       )`
-    )
-    .eq("semester", term)
-    .gte("work_date", monthStart)
-    .lte("work_date", monthEnd)
-    .order("work_date");
+  // Run the three reads in parallel instead of sequentially.
+  const [entriesRes, curriculaRes, termsRes] = await Promise.all([
+    supabase
+      .from("timesheet_entries")
+      .select(
+        `id, work_date, remark, hours,
+         user:users ( id, title, full_name, employment_type, email, student_id, tor_number ),
+         section:sections (
+           id, section, teaching_type, teaching_days, curriculum_id, start_time, end_time, rate, tor_number,
+           course:courses ( code, name ),
+           curriculum:curricula ( id, code, name )
+         )`
+      )
+      .eq("semester", term)
+      .gte("work_date", monthStart)
+      .lte("work_date", monthEnd)
+      .order("work_date"),
+    supabase.from("curricula").select("*").order("id"),
+    supabase.from("terms").select("code, name, is_active, start_date, end_date").order("code"),
+  ]);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (entriesRes.error) return NextResponse.json({ error: entriesRes.error.message }, { status: 500 });
 
-  let rows = data || [];
+  let rows = entriesRes.data || [];
   if (curriculum) rows = rows.filter((r) => String(r.section?.curriculum_id) === String(curriculum));
   if (type) rows = rows.filter((r) => r.user?.employment_type === type);
 
-  const { data: curricula } = await supabase.from("curricula").select("*").order("id");
-  const { data: terms } = await supabase.from("terms").select("code, name, is_active, start_date, end_date").order("code");
-
-  return NextResponse.json({ rows, curricula: curricula || [], terms: terms || [], activeTerm: active.code, term });
+  return NextResponse.json({
+    rows,
+    curricula: curriculaRes.data || [],
+    terms: termsRes.data || [],
+    activeTerm: active.code,
+    term,
+  });
 }
