@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { getSession } from "@/lib/auth";
-import { buildTimesheetWorkbook, computeDisplayRows } from "@/lib/buildTimesheetXlsx";
-import { buildWorkTimeSheetWorkbook } from "@/lib/buildWorkTimeSheetXlsx";
-import { buildTaRaWorkbook } from "@/lib/buildTaRaXlsx";
+import { computeDisplayRows } from "@/lib/buildTimesheetXlsx";
+import { formWorkbook, combinedWorkbook } from "@/lib/exportForms";
 import { getActiveTerm } from "@/lib/term";
 
 export const runtime = "nodejs";
@@ -94,16 +93,10 @@ export async function GET(req) {
     }
   }
 
-  // ทุน ป.ตรี uses the "Work time sheet TA Student (CMU Rate)" form instead of the
-  // generic reimbursement form.
-  const buffer =
-    user.employment_type === "SCHOLARSHIP"
-      ? await buildWorkTimeSheetWorkbook({ user, month, displayRows })
-      : user.employment_type === "TA_RA"
-      ? await buildTaRaWorkbook({ user, month, displayRows })
-      : user.employment_type === "TOR"
-      ? await buildTaRaWorkbook({ user, month, displayRows, title: "แบบใบเบิกค่าตอบแทนงานจ้างเหมาผู้ช่วยสอน" })
-      : await buildTimesheetWorkbook({ user, month, payConfig, displayRows });
+  // One section -> single form. All sections -> one worksheet per section.
+  const buffer = chosenSec
+    ? await formWorkbook({ user, month, displayRows, payConfig })
+    : await combinedWorkbook({ user, month, displayRows, payConfig });
 
   // filename: "ชื่อ-นามสกุล TA_รหัสวิชา_section_เดือน_ปี.xlsx"
   const [ynum, mnum] = month.split("-");

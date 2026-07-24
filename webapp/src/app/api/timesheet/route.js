@@ -13,22 +13,33 @@ export async function GET(req) {
   const uid = session.uid;
   const term = await getActiveTerm(supabase);
 
-  // assignments -> sections -> courses + curricula (incl. rate + expected_cost)
-  const { data: assigns } = await supabase
-    .from("assignments")
-    .select(
-      `id, start_date, end_date,
-       section:sections (
-         id, section, teaching_type, teaching_days, start_time, end_time, instructor,
-         curriculum_id, rate, expected_cost, tor_number,
-         course:courses ( id, code, name ),
-         curriculum:curricula ( id, code, name )
-       )`
-    )
-    .eq("user_id", uid)
-    .eq("semester", term.code);
+  // Run the three independent reads in parallel instead of sequentially.
+  const [assignsRes, entriesRes, blackoutsRes] = await Promise.all([
+    supabase
+      .from("assignments")
+      .select(
+        `id, start_date, end_date,
+         section:sections (
+           id, section, teaching_type, teaching_days, start_time, end_time, instructor,
+           curriculum_id, rate, expected_cost, tor_number,
+           course:courses ( id, code, name ),
+           curriculum:curricula ( id, code, name )
+         )`
+      )
+      .eq("user_id", uid)
+      .eq("semester", term.code),
+    supabase
+      .from("timesheet_entries")
+      .select("id, section_id, work_date, remark, hours")
+      .eq("user_id", uid)
+      .eq("semester", term.code)
+      .order("work_date"),
+    supabase
+      .from("blackout_periods")
+      .select("id, start_date, end_date, reason, blackout_curricula ( curriculum_id )"),
+  ]);
 
-  const sections = (assigns || [])
+  const sections = (assignsRes.data || [])
     .filter((a) => a.section)
     .map((a) => ({
       assignment_id: a.id,
@@ -37,18 +48,8 @@ export async function GET(req) {
       ...a.section,
     }));
 
-  // ALL entries for this user in the active term (for per-section budget totals)
-  const { data: entries } = await supabase
-    .from("timesheet_entries")
-    .select("id, section_id, work_date, remark, hours")
-    .eq("user_id", uid)
-    .eq("semester", term.code)
-    .order("work_date");
-
-  // blackout periods + their curricula
-  const { data: blackouts } = await supabase
-    .from("blackout_periods")
-    .select("id, start_date, end_date, reason, blackout_curricula ( curriculum_id )");
+  const entries = entriesRes.data;
+  const blackouts = blackoutsRes.data;
 
   const blk = (blackouts || []).map((b) => ({
     id: b.id,
@@ -126,10 +127,18 @@ export async function POST(req) {
   }
   const hasHours = (i) => i.hours != null && i.hours !== "" && Number(i.hours) > 0;
 
-  // --- blackout check ---
-  const { data: blackouts } = await supabase
-    .from("blackout_periods")
-    .select("start_date, end_date, blackout_curricula ( curriculum_id )");
+  // blackout periods + existing entries for this section — fetched in parallel
+  const [blackoutsRes, existingRes] = await Promise.all([
+    supabase
+      .from("blackout_periods")
+      .select("start_date, end_date, blackout_curricula ( curriculum_id )"),
+    supabase
+      .from("timesheet_entries")
+      .select("work_date, hours")
+      .eq("user_id", uid)
+      .eq("section_id", section_id),
+  ]);
+  const blackouts = blackoutsRes.data;
 
   const isBlocked = (d) =>
     (blackouts || []).some((b) => {
@@ -149,13 +158,9 @@ export async function POST(req) {
   // --- budget check (expected_cost cap), entry-aware for module + normal ---
   const budget = section.expected_cost == null ? null : Number(section.expected_cost);
 
-  // existing entries for this section (incl. any manual hours) -> used cost,
+  // existing entries for this section (fetched above) -> used cost,
   // excluding dates being re-submitted (they'll be overwritten).
-  const { data: existing } = await supabase
-    .from("timesheet_entries")
-    .select("work_date, hours")
-    .eq("user_id", uid)
-    .eq("section_id", section_id);
+  const existing = existingRes.data;
   const submitDates = new Set(items.map((i) => i.date));
   const usedCost = (existing || [])
     .filter((e) => !submitDates.has(e.work_date))

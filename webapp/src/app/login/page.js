@@ -22,11 +22,11 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "เข้าสู่ระบบไม่สำเร็จ");
+      // keep loading = true through the navigation so the button doesn't flash back
       router.push(data.role === "admin" ? "/admin" : "/dashboard");
       router.refresh();
     } catch (e2) {
       setErr(e2.message);
-    } finally {
       setLoading(false);
     }
   }
@@ -76,7 +76,12 @@ export default function LoginPage() {
           )}
 
           <button className="btn-primary w-full" disabled={loading}>
-            {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+            {loading ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                กำลังเข้าสู่ระบบ...
+              </span>
+            ) : "เข้าสู่ระบบ"}
           </button>
 
           <p className="text-center text-xs text-slate-400">

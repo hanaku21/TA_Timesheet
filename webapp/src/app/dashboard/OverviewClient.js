@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { entryHours, entryCost, thb } from "@/lib/calc";
 import { SaveIcon } from "@/components/Icons";
+import Spinner from "@/components/Spinner";
+import { fetchTimesheet } from "@/lib/timesheetCache";
 import { localeFromName, makeT, monthLabel } from "@/lib/i18n";
 
 export default function OverviewClient({ employmentType, name }) {
@@ -16,12 +18,13 @@ export default function OverviewClient({ employmentType, name }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let alive = true;
     (async () => {
       setLoading(true);
-      const res = await fetch("/api/timesheet");
-      setData(await res.json());
-      setLoading(false);
+      const d = await fetchTimesheet();
+      if (alive) { setData(d); setLoading(false); }
     })();
+    return () => { alive = false; };
   }, []);
 
   const [yy, mm] = month.split("-").map(Number);
@@ -92,14 +95,17 @@ export default function OverviewClient({ employmentType, name }) {
           {t("monthTotal")} <b className="text-emerald-600">{thb(totalCost)}</b> {t("baht")} · {withData.length} {t("items")}
         </div>
         {withData.length > 0 && (
-          <a className="btn-ghost text-sm" href={`/api/timesheet/export-split?month=${month}`}>{t("downloadAllZip")}</a>
+          <div className="flex gap-2">
+            <a className="btn-ghost text-sm" href={`/api/timesheet/export?month=${month}`}>⬇ {t("all")} .xlsx</a>
+            <a className="btn-ghost text-sm" href={`/api/timesheet/export-pdf?month=${month}`}>⬇ {t("all")} .pdf</a>
+          </div>
         )}
       </div>
 
       {/* List */}
       <div className="card overflow-x-auto">
         {loading ? (
-          <p className="py-6 text-center text-sm text-slate-400">{t("loading")}</p>
+          <Spinner label={t("loading")} />
         ) : (
           <table className="w-full text-sm">
             <thead>

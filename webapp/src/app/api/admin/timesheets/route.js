@@ -57,3 +57,38 @@ export async function GET(req) {
     term,
   });
 }
+
+// DELETE /api/admin/timesheets?user_id=&section_id=&month=YYYY-MM&term=
+// Removes all of a user's timesheet entries for one section within a month.
+export async function DELETE(req) {
+  const s = await getSession();
+  if (!s || s.role !== "admin") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  const supabase = getSupabase();
+  const sp = req.nextUrl.searchParams;
+  const userId = sp.get("user_id");
+  const sectionId = sp.get("section_id");
+  const month = sp.get("month");
+  if (!userId || !sectionId || !month) {
+    return NextResponse.json({ error: "missing user_id / section_id / month" }, { status: 400 });
+  }
+
+  const active = await getActiveTerm(supabase);
+  const term = sp.get("term") || active.code;
+  const [yy, mm] = month.split("-").map(Number);
+  const monthStart = `${month}-01`;
+  const monthEnd = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
+
+  const { data: deleted, error } = await supabase
+    .from("timesheet_entries")
+    .delete()
+    .eq("user_id", userId)
+    .eq("section_id", sectionId)
+    .eq("semester", term)
+    .gte("work_date", monthStart)
+    .lte("work_date", monthEnd)
+    .select("id");
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true, deleted: (deleted || []).length });
+}

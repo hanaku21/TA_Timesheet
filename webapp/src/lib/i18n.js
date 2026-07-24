@@ -39,6 +39,7 @@ const T = {
   baht: { th: "บาท", en: "THB" },
   items: { th: "รายการ", en: "items" },
   downloadAllZip: { th: "⬇ ดาวน์โหลดทั้งหมด (.zip)", en: "⬇ Download all (.zip)" },
+  all: { th: "ทั้งหมด", en: "All" },
   colCourse: { th: "วิชา", en: "Course" },
   colSection: { th: "ตอน", en: "Section" },
   colType: { th: "Type", en: "Type" },

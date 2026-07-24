@@ -3,10 +3,12 @@ import { TH_MONTHS } from "@/lib/constants";
 import { computeWorkTimeRows } from "@/lib/workTimeSheet";
 
 // "Work time sheet TA Student (CMU Rate)" — the ทุน ป.ตรี (SCHOLARSHIP) form.
-export async function buildWorkTimeSheetWorkbook({ user, month, displayRows }) {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "CAMT TA Timesheet";
-  const ws = wb.addWorksheet("Work time sheet", {
+// Pass `wb` + `sheetName` to add a worksheet to an existing workbook (one sheet
+// per section for the combined download); otherwise a single-sheet .xlsx buffer.
+export async function buildWorkTimeSheetWorkbook({ user, month, displayRows, wb: extWb, sheetName }) {
+  const wb = extWb || new ExcelJS.Workbook();
+  if (!extWb) wb.creator = "CAMT TA Timesheet";
+  const ws = wb.addWorksheet(sheetName || "Work time sheet", {
     pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
     views: [{ showGridLines: false }],
   });
@@ -156,6 +158,7 @@ export async function buildWorkTimeSheetWorkbook({ user, month, displayRows }) {
   role.font = { size: 11 };
   role.alignment = { horizontal: "center" };
 
+  if (extWb) return wb; // caller adds more sheets + serializes
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }

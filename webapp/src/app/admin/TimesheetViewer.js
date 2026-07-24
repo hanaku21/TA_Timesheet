@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EMP_LABELS, EMP_BADGE, TH_MONTHS } from "@/lib/constants";
 import { thb, entryHours as calcHours, entryCost as calcCost, isModule } from "@/lib/calc";
+import Spinner from "@/components/Spinner";
 
 function entryHours(r) {
   return r.section ? calcHours(r.section, r) : 0;
@@ -112,6 +113,15 @@ export default function TimesheetViewer() {
   const dl = (base, uid, sid) =>
     `${base}?user_id=${uid}&month=${month}&term=${term}${sid ? `&section_id=${sid}` : ""}`;
 
+  async function deleteSection(uid, section, name) {
+    const label = `${section?.course?.code || ""} ตอน ${section?.section || ""}`;
+    if (!confirm(`ลบข้อมูล timesheet ของ ${name}\nวิชา ${label}\nประจำเดือน ${TH_MONTHS[mm - 1]} ${yy + 543}?\n\nการกระทำนี้ย้อนกลับไม่ได้`)) return;
+    const qs = `user_id=${uid}&section_id=${section?.id}&month=${month}&term=${term}`;
+    const res = await fetch(`/api/admin/timesheets?${qs}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json(); alert(d.error || "ลบไม่สำเร็จ"); return; }
+    load();
+  }
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -162,7 +172,7 @@ export default function TimesheetViewer() {
         <Stat label="รวมค่าจ้าง (บาท)" value={thb(sumCost(rows))} accent="emerald" />
       </div>
 
-      {loading && <p className="text-sm text-slate-400">กำลังโหลด...</p>}
+      {loading && <Spinner />}
       {!loading && byUser.length === 0 && (
         <div className="card text-center text-sm text-slate-400">ไม่มีข้อมูลในเดือนนี้</div>
       )}
@@ -189,8 +199,6 @@ export default function TimesheetViewer() {
                 </span>
                 <span className="badge bg-slate-100 text-slate-600">{sumHours(g.entries)} ชม.</span>
                 <span className="badge bg-emerald-100 text-emerald-700">{thb(sumCost(g.entries))} บาท</span>
-                <a className="btn-edit" href={dl("/api/timesheet/export", uid)}>⬇ .xlsx</a>
-                <a className="btn-soft" href={dl("/api/timesheet/export-pdf", uid)}>⬇ .pdf</a>
               </div>
             </div>
 
@@ -204,6 +212,7 @@ export default function TimesheetViewer() {
                     <th className="px-3 py-2 text-right">ชั่วโมง</th>
                     <th className="px-3 py-2 text-right">ยอดเงิน (บาท)</th>
                     <th className="px-3 py-2 text-right">ดาวน์โหลด</th>
+                    <th className="px-3 py-2 text-right">ลบ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -230,6 +239,9 @@ export default function TimesheetViewer() {
                           <a className="btn-soft" href={dl("/api/timesheet/export-pdf", uid, section?.id)}>.pdf</a>
                         </div>
                       </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <button className="btn-danger" onClick={() => deleteSection(uid, section, `${g.user?.title || ""} ${g.user?.full_name}`.trim())}>ลบ</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -238,7 +250,7 @@ export default function TimesheetViewer() {
                     <td className="px-3 py-2" colSpan={3}>รวม {secs.length} วิชา/ตอน</td>
                     <td className="px-3 py-2 text-right">{sumHours(g.entries)}</td>
                     <td className="px-3 py-2 text-right text-emerald-700">{thb(sumCost(g.entries))}</td>
-                    <td />
+                    <td /><td />
                   </tr>
                 </tfoot>
               </table>

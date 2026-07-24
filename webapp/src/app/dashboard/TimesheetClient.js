@@ -5,6 +5,7 @@ import { ymd } from "@/lib/constants";
 import { hoursPerDay, costPerDay, thb, isModule, entryCost, entryHours, toRate } from "@/lib/calc";
 import { localeFromName, makeT, monthLabel, WEEKDAYS } from "@/lib/i18n";
 import { SaveIcon } from "@/components/Icons";
+import { fetchTimesheet, invalidateTimesheet } from "@/lib/timesheetCache";
 
 function monthMatrix(year, month0) {
   const first = new Date(year, month0, 1);
@@ -38,10 +39,9 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
   const [editRemark, setEditRemark] = useState("");
   const [editHours, setEditHours] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ force = false } = {}) => {
     setLoading(true);
-    const res = await fetch(`/api/timesheet`);
-    const d = await res.json();
+    const d = await fetchTimesheet({ force });
     setData(d);
     if (!sectionId && d.sections?.length) {
       const wanted = initialSectionId && d.sections.find((s) => String(s.id) === String(initialSectionId));
@@ -172,12 +172,14 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
     if (!res.ok) { setMsg({ type: "error", text: d.error }); return; }
     setMsg({ type: "ok", text: t("savedAll", { n: picked.length }) });
     setPicked([]); setRemarks({}); setHoursByDate({});
-    load();
+    invalidateTimesheet();
+    load({ force: true });
   }
 
   async function removeEntry(id) {
     await fetch(`/api/timesheet?id=${id}`, { method: "DELETE" });
-    load();
+    invalidateTimesheet();
+    load({ force: true });
   }
 
   function startEdit(e) {
@@ -213,7 +215,8 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
     if (!res.ok) { setMsg({ type: "error", text: d.error }); return; }
     setMsg({ type: "ok", text: t("savedOk", { date: e.work_date }) });
     cancelEdit();
-    load();
+    invalidateTimesheet();
+    load({ force: true });
   }
 
   function shiftMonth(delta) {

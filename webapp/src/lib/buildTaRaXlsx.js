@@ -41,10 +41,10 @@ export function deriveLevelAndProgram(displayRows) {
 
 // "แบบใบเบิกค่าตอบแทนทุนผู้ช่วยสอน" — the TA/RA form.
 // `title` overrides the first line (TOR/จ้างเหมา reuses this template with its own title).
-export async function buildTaRaWorkbook({ user, month, displayRows, title }) {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "CAMT TA Timesheet";
-  const ws = wb.addWorksheet("ใบเบิก", {
+export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: extWb, sheetName }) {
+  const wb = extWb || new ExcelJS.Workbook();
+  if (!extWb) wb.creator = "CAMT TA Timesheet";
+  const ws = wb.addWorksheet(sheetName || "ใบเบิก", {
     pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
     views: [{ showGridLines: false }],
   });
@@ -245,6 +245,7 @@ export async function buildTaRaWorkbook({ user, month, displayRows, title }) {
     ws.getRow(rr).height = 18;
   });
 
+  if (extWb) return wb; // caller adds more sheets + serializes
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }

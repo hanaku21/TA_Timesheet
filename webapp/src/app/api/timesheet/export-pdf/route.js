@@ -2,9 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { getSession } from "@/lib/auth";
 import { computeDisplayRows } from "@/lib/buildTimesheetXlsx";
-import { buildTimesheetPdf } from "@/lib/buildTimesheetPdf";
-import { buildWorkTimeSheetPdf } from "@/lib/buildWorkTimeSheetPdf";
-import { buildTaRaPdf } from "@/lib/buildTaRaPdf";
+import { formPdf, combinedPdf } from "@/lib/exportForms";
 import { getActiveTerm } from "@/lib/term";
 
 export const runtime = "nodejs";
@@ -90,15 +88,10 @@ export async function GET(req) {
     }
   }
 
-  // ทุน ป.ตรี uses the "Work time sheet TA Student (CMU Rate)" form.
-  const buffer =
-    user.employment_type === "SCHOLARSHIP"
-      ? await buildWorkTimeSheetPdf({ user, month, displayRows })
-      : user.employment_type === "TA_RA"
-      ? await buildTaRaPdf({ user, month, displayRows })
-      : user.employment_type === "TOR"
-      ? await buildTaRaPdf({ user, month, displayRows, title: "แบบใบเบิกค่าตอบแทนงานจ้างเหมาผู้ช่วยสอน" })
-      : await buildTimesheetPdf({ user, month, payConfig, displayRows });
+  // One section -> single form. All sections -> one form page per section (merged).
+  const buffer = chosenSec
+    ? await formPdf({ user, month, displayRows, payConfig })
+    : await combinedPdf({ user, month, displayRows, payConfig });
 
   const [ynum, mnum] = month.split("-");
   let fnameRaw;
