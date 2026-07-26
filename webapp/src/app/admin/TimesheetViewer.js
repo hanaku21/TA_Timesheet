@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EMP_LABELS, EMP_BADGE, TH_MONTHS } from "@/lib/constants";
-import { thb, entryHours as calcHours, entryCost as calcCost, isModule } from "@/lib/calc";
+import { thb, entryHours as calcHours, entryCost as calcCost } from "@/lib/calc";
 import Spinner from "@/components/Spinner";
 
 function entryHours(r) {
@@ -40,6 +40,7 @@ export default function TimesheetViewer() {
   const [type, setType] = useState("");
   const [term, setTerm] = useState("");
   const [q, setQ] = useState("");
+  const [courseQ, setCourseQ] = useState("");
   const [data, setData] = useState({ rows: [], curricula: [], terms: [] });
   const [loading, setLoading] = useState(false);
 
@@ -59,13 +60,17 @@ export default function TimesheetViewer() {
   useEffect(() => { load(); }, [load]);
 
   const [yy, mm] = month.split("-").map(Number);
-  // client-side curriculum + type filtering (no refetch)
+  // client-side curriculum + type + course-code filtering (no refetch)
   const rows = useMemo(() => {
     let r = data.rows || [];
     if (curriculum) r = r.filter((x) => String(x.section?.curriculum_id) === String(curriculum));
     if (type) r = r.filter((x) => x.user?.employment_type === type);
+    if (courseQ.trim()) {
+      const needle = courseQ.trim().toLowerCase();
+      r = r.filter((x) => (x.section?.course?.code || "").toLowerCase().includes(needle));
+    }
     return r;
-  }, [data.rows, curriculum, type]);
+  }, [data.rows, curriculum, type, courseQ]);
 
   // clamp the month switcher to the selected term's range (เปิดเทอม → ปิดเทอม)
   const activeTerm = (data.terms || []).find((t) => t.code === term);
@@ -113,6 +118,52 @@ export default function TimesheetViewer() {
   const dl = (base, uid, sid) =>
     `${base}?user_id=${uid}&month=${month}&term=${term}${sid ? `&section_id=${sid}` : ""}`;
 
+  const confirmedSet = new Set(data.confirmed || []); // "user|section"
+  const isConfirmed = (uid, sid) => confirmedSet.has(`${uid}|${sid}`);
+
+  // submission progress across the currently-shown data
+  const submitStats = useMemo(() => {
+    const seen = new Set();
+    let units = 0, confirmed = 0;
+    const perUserTotal = {};
+    const perUserConfirmed = {};
+    rows.forEach((r) => {
+      const uid = r.user?.id;
+      const key = `${uid}|${r.section?.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      units += 1;
+      perUserTotal[uid] = (perUserTotal[uid] || 0) + 1;
+      if (confirmedSet.has(key)) {
+        confirmed += 1;
+        perUserConfirmed[uid] = (perUserConfirmed[uid] || 0) + 1;
+      }
+    });
+    const peopleDone = Object.keys(perUserTotal).filter(
+      (uid) => (perUserConfirmed[uid] || 0) === perUserTotal[uid]
+    ).length;
+    return { units, confirmed, people: Object.keys(perUserTotal).length, peopleDone };
+  }, [rows, data.confirmed]);
+
+  async function toggleConfirm(uid, section, name) {
+    const on = isConfirmed(uid, section?.id);
+    const label = `${section?.course?.code || ""} ตอน ${section?.section || ""}`;
+    if (on) {
+      // turning OFF = reject/unlock -> confirm the destructive action
+      if (!confirm(`ยกเลิกการยืนยันของ ${name}\nวิชา ${label}\nประจำเดือน ${TH_MONTHS[mm - 1]} ${yy + 543}?\nผู้ใช้จะกลับมาแก้ไขวิชานี้ได้อีกครั้ง`)) return;
+      const res = await fetch(`/api/admin/submissions?user_id=${uid}&section_id=${section?.id}&month=${month}&term=${term}`, { method: "DELETE" });
+      if (!res.ok) { const d = await res.json(); alert(d.error || "ไม่สำเร็จ"); return; }
+    } else {
+      const res = await fetch("/api/admin/submissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: uid, section_id: section?.id, month, term }),
+      });
+      if (!res.ok) { const d = await res.json(); alert(d.error || "ไม่สำเร็จ"); return; }
+    }
+    load();
+  }
+
   async function deleteSection(uid, section, name) {
     const label = `${section?.course?.code || ""} ตอน ${section?.section || ""}`;
     if (!confirm(`ลบข้อมูล timesheet ของ ${name}\nวิชา ${label}\nประจำเดือน ${TH_MONTHS[mm - 1]} ${yy + 543}?\n\nการกระทำนี้ย้อนกลับไม่ได้`)) return;
@@ -159,15 +210,28 @@ export default function TimesheetViewer() {
             ))}
           </select>
         </div>
-        <div className="min-w-[180px] flex-1">
+        <div className="min-w-[160px] flex-1">
           <label className="label">ค้นหาผู้ช่วยสอน</label>
           <input className="input" placeholder="ชื่อ / อีเมล" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <div className="min-w-[140px]">
+          <label className="label">ค้นหารหัสวิชา</label>
+          <input className="input" placeholder="เช่น 954374" value={courseQ} onChange={(e) => setCourseQ(e.target.value)} />
         </div>
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <Stat label="ผู้ช่วยสอน" value={byUser.length} />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat
+          label="ยืนยันครบ (คน)"
+          value={`${submitStats.peopleDone} / ${data.totalUsers ?? submitStats.people}`}
+          accent={(data.totalUsers ?? 0) > 0 && submitStats.peopleDone === data.totalUsers ? "emerald" : undefined}
+        />
+        <Stat
+          label="ยืนยันแล้ว (วิชา/ตอน)"
+          value={`${submitStats.confirmed} / ${submitStats.units}`}
+          accent={submitStats.units > 0 && submitStats.confirmed === submitStats.units ? "emerald" : undefined}
+        />
         <Stat label="รวมชั่วโมง" value={sumHours(rows)} />
         <Stat label="รวมค่าจ้าง (บาท)" value={thb(sumCost(rows))} accent="emerald" />
       </div>
@@ -211,6 +275,7 @@ export default function TimesheetViewer() {
                     <th className="px-3 py-2">ประเภท</th>
                     <th className="px-3 py-2 text-right">ชั่วโมง</th>
                     <th className="px-3 py-2 text-right">ยอดเงิน (บาท)</th>
+                    <th className="px-3 py-2 text-right">ยืนยันข้อมูล</th>
                     <th className="px-3 py-2 text-right">ดาวน์โหลด</th>
                     <th className="px-3 py-2 text-right">ลบ</th>
                   </tr>
@@ -228,11 +293,33 @@ export default function TimesheetViewer() {
                       <td className="px-3 py-2 whitespace-nowrap">{section?.section}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span className={`badge ${section?.teaching_type === "LAB" ? "bg-sky-100 text-sky-700" : "bg-violet-100 text-violet-700"}`}>
-                          {isModule(section) ? "MODULE" : (section?.teaching_type || "—")}
+                          {section?.teaching_type || "—"}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right text-slate-600">{hours}</td>
                       <td className="px-3 py-2 text-right font-medium text-emerald-700">{thb(cost)}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        {(() => {
+                          const on = isConfirmed(uid, section?.id);
+                          return (
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={on}
+                                title={on ? "ยืนยันแล้ว — คลิกเพื่อยกเลิก" : "ยังไม่ยืนยัน — คลิกเพื่อยืนยัน"}
+                                onClick={() => toggleConfirm(uid, section, `${g.user?.title || ""} ${g.user?.full_name}`.trim())}
+                                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-slate-300"}`}
+                              >
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+                              </button>
+                              <span className={`text-xs font-medium ${on ? "text-emerald-600" : "text-slate-400"}`}>
+                                {on ? "ยืนยัน" : "ไม่ยืนยัน"}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         <div className="flex justify-end gap-1.5">
                           <a className="btn-edit" href={dl("/api/timesheet/export", uid, section?.id)}>.xlsx</a>
@@ -250,7 +337,7 @@ export default function TimesheetViewer() {
                     <td className="px-3 py-2" colSpan={3}>รวม {secs.length} วิชา/ตอน</td>
                     <td className="px-3 py-2 text-right">{sumHours(g.entries)}</td>
                     <td className="px-3 py-2 text-right text-emerald-700">{thb(sumCost(g.entries))}</td>
-                    <td /><td />
+                    <td /><td /><td />
                   </tr>
                 </tfoot>
               </table>

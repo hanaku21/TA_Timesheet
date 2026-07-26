@@ -28,7 +28,7 @@ const T = {
   roleAdmin: { th: "ผู้ดูแลระบบ", en: "Administrator" },
   roleTA: { th: "ผู้ช่วยสอน", en: "Teaching Assistant" },
   navOverview: { th: "ภาพรวม", en: "Overview" },
-  navLog: { th: "บันทึกเวลา", en: "Log Time" },
+  navLog: { th: "บันทึกเวลา", en: "Timesheet" },
   logout: { th: "ออกจากระบบ", en: "Sign out" },
 
   // Overview
@@ -40,6 +40,16 @@ const T = {
   items: { th: "รายการ", en: "items" },
   downloadAllZip: { th: "⬇ ดาวน์โหลดทั้งหมด (.zip)", en: "⬇ Download all (.zip)" },
   all: { th: "ทั้งหมด", en: "All" },
+  confirmSubmit: { th: "ยืนยันนำส่ง", en: "Confirm submission" },
+  submitted: { th: "นำส่งแล้ว", en: "Submitted" },
+  confirmTitle: { th: "ยืนยันการนำส่งเบิก", en: "Confirm submission" },
+  confirmMsg: {
+    th: "เมื่อยืนยันการนำส่งเบิกแล้ว จะไม่สามารถแก้ไขข้อมูลได้อีก กรุณาตรวจสอบความถูกต้องของข้อมูลก่อนดำเนินการ",
+    en: "Once you confirm the submission you can no longer edit the data. Please verify everything is correct before proceeding.",
+  },
+  confirmYes: { th: "ยืนยันนำส่ง", en: "Confirm" },
+  needConfirm: { th: "ต้องยืนยันนำส่งก่อนจึงจะดาวน์โหลดได้", en: "Confirm submission before downloading" },
+  frozenNote: { th: "🔒 เดือนนี้ยืนยันนำส่งแล้ว — แก้ไขไม่ได้ (ติดต่อผู้ดูแลเพื่อขอแก้ไข)", en: "🔒 This month is submitted — editing is locked (contact admin to edit)" },
   colCourse: { th: "วิชา", en: "Course" },
   colSection: { th: "ตอน", en: "Section" },
   colType: { th: "Type", en: "Type" },
@@ -49,13 +59,13 @@ const T = {
   colHours: { th: "ชั่วโมง", en: "Hours" },
   colAmount: { th: "ยอดเงิน (บาท)", en: "Amount (THB)" },
   colDownload: { th: "ดาวน์โหลด", en: "Download" },
-  colLog: { th: "บันทึกเวลา", en: "Log" },
+  colLog: { th: "บันทึกเวลา", en: "Fill Timesheet" },
   logEntry: { th: "บันทึกข้อมูล", en: "Log time" },
   noCourses: { th: "ยังไม่มีวิชาที่ได้รับมอบหมาย", en: "No assigned courses yet" },
   loading: { th: "กำลังโหลด...", en: "Loading..." },
 
   // Log page
-  logTitle: { th: "บันทึกเวลาทำงาน", en: "Log Working Time" },
+  logTitle: { th: "บันทึกเวลาทำงาน", en: "Timesheet" },
   backOverview: { th: "← กลับหน้าภาพรวม", en: "← Back to Overview" },
   courseSection: { th: "รายวิชา / Section", en: "Course / Section" },
   noAssigned: { th: "— ยังไม่มีรายวิชาที่ได้รับมอบหมาย —", en: "— No assigned courses —" },

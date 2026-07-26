@@ -150,6 +150,21 @@ CREATE INDEX idx_ts_user_date ON timesheet_entries(user_id, work_date);
 CREATE INDEX idx_ts_date ON timesheet_entries(work_date);
 
 -- ---------------------------------------------------------------------
+-- Submissions — a user "confirms" a month; that month is then frozen
+-- (no edits) until an admin rejects it. One row per (user, term, month).
+-- ---------------------------------------------------------------------
+CREATE TABLE submissions (
+  id            SERIAL PRIMARY KEY,
+  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  section_id    INTEGER NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+  term          TEXT NOT NULL,
+  month         TEXT NOT NULL,
+  confirmed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, term, month, section_id)
+);
+CREATE INDEX idx_submissions_user ON submissions(user_id, term);
+
+-- ---------------------------------------------------------------------
 -- Settings — key/value (semester dates, etc.)
 -- ---------------------------------------------------------------------
 CREATE TABLE settings (

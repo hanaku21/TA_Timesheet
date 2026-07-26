@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { ymd } from "@/lib/constants";
 import { hoursPerDay, costPerDay, thb, isModule, entryCost, entryHours, toRate } from "@/lib/calc";
 import { localeFromName, makeT, monthLabel, WEEKDAYS } from "@/lib/i18n";
-import { SaveIcon } from "@/components/Icons";
+import { EditIcon } from "@/components/Icons";
 import { fetchTimesheet, invalidateTimesheet } from "@/lib/timesheetCache";
 
 function monthMatrix(year, month0) {
@@ -54,6 +54,10 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
   useEffect(() => { setPicked([]); setRemarks({}); setHoursByDate({}); setMsg(null); }, [month, sectionId]);
   const pickedSet = useMemo(() => new Set(picked), [picked]);
 
+  // confirmed (frozen) = this section+month has been submitted -> read-only
+  const frozen = (data?.submissions || []).some(
+    (s) => s.month === month && String(s.section_id) === String(sectionId)
+  );
   const [yy, mm] = month.split("-").map(Number);
   const weeks = useMemo(() => monthMatrix(yy, mm - 1), [yy, mm]);
 
@@ -124,6 +128,7 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
   }
 
   function toggle(d) {
+    if (frozen) return; // month confirmed -> read-only
     const st = dateState(d);
     if (!["open", "selected"].includes(st.kind)) return;
     const s = ymd(d);
@@ -253,6 +258,11 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
     <div className="grid gap-6 lg:grid-cols-3">
       {/* Left: controls + calendar */}
       <div className="lg:col-span-2 space-y-4">
+        {frozen && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            {t("frozenNote")}
+          </div>
+        )}
         <div className="card">
           <div className="mb-4">
             <label className="label">{t("courseSection")}</label>
@@ -403,7 +413,7 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
 
           {picked.length > 0 && (
             <button className="btn-blue mt-3 w-full" disabled={overBudget} onClick={saveAll}>
-              <SaveIcon size={16} /> {t("save")}
+              <EditIcon size={16} /> {t("save")}
             </button>
           )}
 
@@ -449,7 +459,7 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
                       </div>
                     )}
                     <div className="flex gap-2">
-                      <button className="btn-blue flex-1 py-1 text-xs" title={t("save")} onClick={() => saveEdit(e)}><SaveIcon size={15} /> {t("save")}</button>
+                      <button className="btn-blue flex-1 py-1 text-xs" title={t("save")} onClick={() => saveEdit(e)}><EditIcon size={15} /> {t("save")}</button>
                       <button className="btn-ghost py-1 text-xs" onClick={cancelEdit}>{t("cancel")}</button>
                     </div>
                   </li>
@@ -462,10 +472,12 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
                     <div className="mt-0.5 text-xs text-slate-400">{h} {t("hrsShort")} · {thb(c)} {t("baht")}</div>
                     {e.remark && <div className="mt-0.5 text-xs text-slate-400">📝 {e.remark}</div>}
                   </div>
-                  <div className="flex shrink-0 gap-1.5">
-                    <button className="btn-edit" onClick={() => startEdit(e)}>{t("edit")}</button>
-                    <button className="btn-danger" onClick={() => removeEntry(e.id)}>{t("delete")}</button>
-                  </div>
+                  {!frozen && (
+                    <div className="flex shrink-0 gap-1.5">
+                      <button className="btn-edit" onClick={() => startEdit(e)}>{t("edit")}</button>
+                      <button className="btn-danger" onClick={() => removeEntry(e.id)}>{t("delete")}</button>
+                    </div>
+                  )}
                 </li>
               );
             })}

@@ -13,8 +13,8 @@ export async function GET(req) {
   const uid = session.uid;
   const term = await getActiveTerm(supabase);
 
-  // Run the three independent reads in parallel instead of sequentially.
-  const [assignsRes, entriesRes, blackoutsRes] = await Promise.all([
+  // Run the independent reads in parallel instead of sequentially.
+  const [assignsRes, entriesRes, blackoutsRes, subsRes] = await Promise.all([
     supabase
       .from("assignments")
       .select(
@@ -37,6 +37,11 @@ export async function GET(req) {
     supabase
       .from("blackout_periods")
       .select("id, start_date, end_date, reason, blackout_curricula ( curriculum_id )"),
+    supabase
+      .from("submissions")
+      .select("month, section_id")
+      .eq("user_id", uid)
+      .eq("term", term.code),
   ]);
 
   const sections = (assignsRes.data || [])
@@ -63,6 +68,7 @@ export async function GET(req) {
     sections,
     entries: entries || [],
     blackouts: blk,
+    submissions: (subsRes.data || []).map((s) => ({ month: s.month, section_id: s.section_id })), // confirmed (frozen) section-months
     semester: { start: term.start_date, end: term.end_date, label: term.code },
   });
 }
@@ -93,6 +99,22 @@ export async function POST(req) {
 
   if (!section_id || dates.length === 0) {
     return NextResponse.json({ error: "กรุณาเลือก section และวันที่อย่างน้อย 1 วัน" }, { status: 400 });
+  }
+
+  // Freeze check: block saving into any month this section has been confirmed.
+  const months = [...new Set(dates.map((d) => d.slice(0, 7)))];
+  const { data: frozen } = await supabase
+    .from("submissions")
+    .select("month")
+    .eq("user_id", uid)
+    .eq("term", term.code)
+    .eq("section_id", section_id)
+    .in("month", months);
+  if (frozen && frozen.length > 0) {
+    return NextResponse.json(
+      { error: "เดือนนี้ยืนยันนำส่งแล้ว ไม่สามารถแก้ไขข้อมูลได้ (กรุณาติดต่อผู้ดูแลระบบเพื่อขอแก้ไข)" },
+      { status: 423 }
+    );
   }
 
   // verify the section belongs to this user (active term) + load budget fields
@@ -210,6 +232,30 @@ export async function DELETE(req) {
   const supabase = getSupabase();
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 });
+
+  // Freeze check: can't delete an entry in a confirmed month.
+  const { data: ent } = await supabase
+    .from("timesheet_entries")
+    .select("work_date, semester, section_id")
+    .eq("id", id)
+    .eq("user_id", session.uid)
+    .maybeSingle();
+  if (ent) {
+    const { data: frozen } = await supabase
+      .from("submissions")
+      .select("id")
+      .eq("user_id", session.uid)
+      .eq("term", ent.semester)
+      .eq("month", ent.work_date.slice(0, 7))
+      .eq("section_id", ent.section_id)
+      .maybeSingle();
+    if (frozen) {
+      return NextResponse.json(
+        { error: "เดือนนี้ยืนยันนำส่งแล้ว ไม่สามารถแก้ไขข้อมูลได้" },
+        { status: 423 }
+      );
+    }
+  }
 
   const { error } = await supabase
     .from("timesheet_entries")

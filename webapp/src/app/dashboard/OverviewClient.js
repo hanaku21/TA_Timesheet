@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { entryHours, entryCost, thb } from "@/lib/calc";
-import { SaveIcon } from "@/components/Icons";
+import { EditIcon } from "@/components/Icons";
 import Spinner from "@/components/Spinner";
-import { fetchTimesheet } from "@/lib/timesheetCache";
+import Modal from "@/components/Modal";
+import { fetchTimesheet, invalidateTimesheet } from "@/lib/timesheetCache";
 import { localeFromName, makeT, monthLabel } from "@/lib/i18n";
 
 export default function OverviewClient({ employmentType, name }) {
@@ -16,6 +17,34 @@ export default function OverviewClient({ employmentType, name }) {
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [confirmSection, setConfirmSection] = useState(null); // { id, label } or null
+  const [submitting, setSubmitting] = useState(false);
+
+  const reload = async () => {
+    invalidateTimesheet();
+    const d = await fetchTimesheet({ force: true });
+    setData(d);
+  };
+
+  async function confirmSubmit() {
+    if (!confirmSection) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/timesheet/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month, section_id: confirmSection.id }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "ไม่สำเร็จ");
+      setConfirmSection(null);
+      await reload();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -48,6 +77,12 @@ export default function OverviewClient({ employmentType, name }) {
 
   const withData = rows.filter((r) => r.days > 0);
   const totalCost = Math.round(withData.reduce((a, r) => a + r.cost, 0) * 100) / 100;
+
+  // per-section confirmation (frozen) for the selected month -> gates downloads
+  const subs = data?.submissions || [];
+  const isConfirmed = (sectionId) =>
+    subs.some((s) => s.month === month && String(s.section_id) === String(sectionId));
+  const allConfirmed = withData.length > 0 && withData.every((r) => isConfirmed(r.s.id));
 
   // Limit the month switcher to the active term (เปิดเทอม → ปิดเทอม).
   const minMonth = data?.semester?.start ? data.semester.start.slice(0, 7) : null;
@@ -94,8 +129,8 @@ export default function OverviewClient({ employmentType, name }) {
         <div className="text-sm text-slate-600">
           {t("monthTotal")} <b className="text-emerald-600">{thb(totalCost)}</b> {t("baht")} · {withData.length} {t("items")}
         </div>
-        {withData.length > 0 && (
-          <div className="flex gap-2">
+        {allConfirmed && (
+          <div className="flex flex-wrap items-center gap-2">
             <a className="btn-ghost text-sm" href={`/api/timesheet/export?month=${month}`}>⬇ {t("all")} .xlsx</a>
             <a className="btn-ghost text-sm" href={`/api/timesheet/export-pdf?month=${month}`}>⬇ {t("all")} .pdf</a>
           </div>
@@ -123,7 +158,7 @@ export default function OverviewClient({ employmentType, name }) {
             </thead>
             <tbody>
               {rows.map(({ s, days, hours, cost }) => (
-                <tr key={s.id} className={`odd:bg-white even:bg-slate-50 ${days === 0 ? "opacity-50" : ""}`}>
+                <tr key={s.id} className="odd:bg-white even:bg-slate-50">
                   <td className="px-3 py-2">
                     <span className="font-medium text-slate-700">{s.course?.code}</span>{" "}
                     <span className="text-slate-500">{s.course?.name}</span>
@@ -139,16 +174,23 @@ export default function OverviewClient({ employmentType, name }) {
                   <td className="px-3 py-2 text-right">{hours}</td>
                   <td className="px-3 py-2 text-right font-medium text-emerald-700">{thb(cost)}</td>
                   <td className="px-3 py-2 text-right">
-                    <Link className="btn-sky" title={t("logEntry")} href={`/dashboard/log?section=${s.id}`}><SaveIcon size={15} /></Link>
+                    <Link className="btn-sky" title={t("logEntry")} href={`/dashboard/log?section=${s.id}`}><EditIcon size={15} /></Link>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {days > 0 ? (
+                    {days === 0 ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : isConfirmed(s.id) ? (
                       <div className="flex justify-end gap-1.5 whitespace-nowrap">
                         <a className="btn-edit" href={`/api/timesheet/export?month=${month}&section_id=${s.id}`}>⬇ .xlsx</a>
                         <a className="btn-soft" href={`/api/timesheet/export-pdf?month=${month}&section_id=${s.id}`}>⬇ .pdf</a>
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">—</span>
+                      <button
+                        className="btn-xs whitespace-nowrap bg-brand text-white hover:bg-brand-dark"
+                        onClick={() => setConfirmSection({ id: s.id, label: `${s.course?.code || ""} ${t("colSection")} ${s.section}` })}
+                      >
+                        {t("confirmSubmit")}
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -160,6 +202,21 @@ export default function OverviewClient({ employmentType, name }) {
           </table>
         )}
       </div>
+
+      <Modal open={!!confirmSection} onClose={() => setConfirmSection(null)} title={t("confirmTitle")}>
+        {confirmSection && (
+          <div className="mb-2 rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
+            {confirmSection.label}
+          </div>
+        )}
+        <p className="text-sm leading-relaxed text-slate-600">{t("confirmMsg")}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="btn-ghost" onClick={() => setConfirmSection(null)}>{t("cancel")}</button>
+          <button className="btn-primary" disabled={submitting} onClick={confirmSubmit}>
+            {submitting ? "..." : t("confirmYes")}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

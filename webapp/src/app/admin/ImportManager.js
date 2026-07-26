@@ -77,33 +77,17 @@ export default function ImportManager() {
   const [resetMsg, setResetMsg] = useState(null);
   const [cfg, setCfg] = useState({ scholarship_rate: 50, scholarship_max_hours: 8 });
   const [cfgMsg, setCfgMsg] = useState(null);
-  const [pwConfirm, setPwConfirm] = useState("");
-  const [pwMsg, setPwMsg] = useState(null);
-  const [pwBusy, setPwBusy] = useState(false);
-
-  async function resetPasswords() {
-    if (pwConfirm !== "RESET") return;
-    if (!confirm("รีเซ็ตรหัสผ่านของผู้ใช้ทุกคน (ยกเว้น admin) เป็นเบอร์โทร?")) return;
-    setPwMsg(null); setPwBusy(true);
-    try {
-      const res = await fetch("/api/admin/reset-passwords", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: "RESET" }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "ไม่สำเร็จ");
-      setPwMsg({ type: "ok", text: `รีเซ็ตแล้ว ${d.updated} คน (ใช้ค่าเริ่มต้น 0123456789 เพราะไม่มีเบอร์: ${d.usedDefault} คน)` });
-      setPwConfirm("");
-    } catch (e2) {
-      setPwMsg({ type: "error", text: e2.message });
-    } finally {
-      setPwBusy(false);
-    }
-  }
+  const [terms, setTerms] = useState([]);
+  const [term, setTerm] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/settings").then((r) => r.json()).then((d) => {
       if (d && d.scholarship_rate) setCfg({ scholarship_rate: d.scholarship_rate, scholarship_max_hours: d.scholarship_max_hours });
+    });
+    fetch("/api/admin/terms").then((r) => r.json()).then((d) => {
+      const ts = d.terms || [];
+      setTerms(ts);
+      setTerm((ts.find((t) => t.is_active) || ts[0])?.code || "");
     });
   }, []);
 
@@ -149,9 +133,14 @@ export default function ImportManager() {
       setErr("กรุณาเลือกอย่างน้อย 1 ไฟล์");
       return;
     }
+    if (!term) {
+      setErr("กรุณาเลือกปีการศึกษาที่จะนำเข้า");
+      return;
+    }
     const fd = new FormData();
     if (people) fd.append("people", people);
     if (ems) fd.append("ems", ems);
+    if (term) fd.append("term", term);
     setLoading(true);
     try {
       const res = await fetch("/api/admin/import", { method: "POST", body: fd });
@@ -191,29 +180,6 @@ export default function ImportManager() {
       )}
     </form>
 
-    {/* Reset passwords to phone */}
-    <div className="card">
-      <h3 className="font-semibold text-slate-700">รีเซ็ตรหัสผ่านผู้ใช้เป็นเบอร์โทร</h3>
-      <p className="mt-1 text-sm text-slate-500">
-        ตั้งรหัสผ่านของผู้ใช้ทุกคน (ยกเว้น admin) ให้เป็นเบอร์โทรของแต่ละคน — ถ้าใครไม่มีเบอร์จะตั้งเป็น <b>0123456789</b>
-      </p>
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="label">พิมพ์ <b>RESET</b> เพื่อยืนยัน</label>
-          <input className="input w-40" value={pwConfirm} onChange={(e) => setPwConfirm(e.target.value)} placeholder="RESET" />
-        </div>
-        <button className="btn bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
-          disabled={pwConfirm !== "RESET" || pwBusy} onClick={resetPasswords}>
-          {pwBusy ? "กำลังรีเซ็ต..." : "รีเซ็ตรหัสผ่านทั้งหมด"}
-        </button>
-      </div>
-      {pwMsg && (
-        <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${pwMsg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
-          {pwMsg.text}
-        </div>
-      )}
-    </div>
-
     {/* Backup */}
     <div className="card">
       <h3 className="font-semibold text-slate-700">สำรองข้อมูล (Backup)</h3>
@@ -231,6 +197,17 @@ export default function ImportManager() {
           ใช้ไฟล์รูปแบบเดียวกับที่ส่งมา ระบบจะสร้าง/อัปเดตข้อมูลให้อัตโนมัติ
           (อัปเดตซ้ำได้ ไม่สร้างข้อมูลซ้ำ)
         </p>
+
+        <div>
+          <label className="label">นำเข้าไปยังปีการศึกษา *</label>
+          <select className="input" value={term} onChange={(e) => setTerm(e.target.value)}>
+            {terms.length === 0 && <option value="">— ยังไม่มีปีการศึกษา —</option>}
+            {terms.map((t) => (
+              <option key={t.code} value={t.code}>{t.code}{t.is_active ? " (ใช้งานอยู่)" : ""}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-400">ข้อมูลวิชา/section/มอบหมายงานจะถูกบันทึกลงปีการศึกษาที่เลือก</p>
+        </div>
 
         <div>
           <label className="label">1) ไฟล์ผู้ช่วยสอน (สร้าง/อัปเดต user)</label>

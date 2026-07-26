@@ -9,7 +9,7 @@ const round2 = (n) => Math.round(n * 100) / 100;
 const num = (n, dp = 0) =>
   Number(n).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
 
-const MIN_ROWS = 8;
+const ROWS_PER_PAGE = 10; // records per page
 
 // "แบบใบเบิกค่าตอบแทนทุนผู้ช่วยสอน" (TA/RA) as a PDF — A4 landscape.
 // `title` overrides the first line (TOR/จ้างเหมา reuses this template).
@@ -41,7 +41,7 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
   const fixed = cols.reduce((a, c) => a + c.w, 0);
   cols[cols.length - 1].w = CONTENT_W - fixed;
 
-  const page = doc.addPage([PAGE_W, PAGE_H]);
+  let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - MARGIN;
 
   const tw = (s, f, size) => f.widthOfTextAtSize(String(s ?? ""), size);
@@ -116,24 +116,35 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
     else centered(s, colX(i) + c.w / 2, yT, size, f);
   };
 
-  // header (supports the 2-line labels)
-  grid(y, HROW);
-  cols.forEach((c, i) => {
-    const parts = c.label.split("\n");
-    if (parts.length === 1) {
-      centered(parts[0], colX(i) + c.w / 2, y - HROW / 2 - 3, 9.5, bold);
-    } else {
-      centered(parts[0], colX(i) + c.w / 2, y - 13, 9.5, bold);
-      centered(parts[1], colX(i) + c.w / 2, y - 25, 9.5, bold);
-    }
-  });
-  y -= HROW;
+  // table header (supports the 2-line labels) — redrawn at the top of each page
+  const drawTableHeader = () => {
+    grid(y, HROW);
+    cols.forEach((c, i) => {
+      const parts = c.label.split("\n");
+      if (parts.length === 1) {
+        centered(parts[0], colX(i) + c.w / 2, y - HROW / 2 - 3, 9.5, bold);
+      } else {
+        centered(parts[0], colX(i) + c.w / 2, y - 13, 9.5, bold);
+        centered(parts[1], colX(i) + c.w / 2, y - 25, 9.5, bold);
+      }
+    });
+    y -= HROW;
+  };
+  drawTableHeader();
 
   const fullName = `${user.title || ""}${user.full_name}`.trim();
   const rows = displayRows || [];
   let total = 0;
+  let onPage = 0; // records drawn on the current page (max ROWS_PER_PAGE)
 
   rows.forEach((e) => {
+    if (onPage === ROWS_PER_PAGE) {
+      // new continuation page: repeat the table header
+      page = doc.addPage([PAGE_W, PAGE_H]);
+      y = PAGE_H - MARGIN;
+      drawTableHeader();
+      onPage = 0;
+    }
     const sec = e.section || {};
     total = round2(total + Number(e.money || 0));
     grid(y, ROW);
@@ -145,8 +156,10 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
     cell(5, num(e.money), y, ROW, font, 9.5);
     cell(7, e.remark || "", y, ROW, font, 9);
     y -= ROW;
+    onPage += 1;
   });
-  for (let k = rows.length; k < MIN_ROWS; k++) {
+  // pad the last page up to ROWS_PER_PAGE with blank ruled rows
+  for (let k = onPage; k < ROWS_PER_PAGE; k++) {
     grid(y, ROW);
     y -= ROW;
   }

@@ -194,12 +194,11 @@ export default function SectionsManager() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2 text-sm">
                           <span className="font-semibold text-slate-700">ตอน {s.section}</span>
-                          {isModule(s) ? (
-                            <span className="badge bg-amber-100 text-amber-700">MODULE</span>
-                          ) : (
-                            <span className={`badge ${s.teaching_type === "LAB" ? "bg-sky-100 text-sky-700" : "bg-violet-100 text-violet-700"}`}>
-                              {s.teaching_type || "—"}
-                            </span>
+                          <span className={`badge ${s.teaching_type === "LAB" ? "bg-sky-100 text-sky-700" : "bg-violet-100 text-violet-700"}`}>
+                            {s.teaching_type || "—"}
+                          </span>
+                          {isModule(s) && (
+                            <span className="badge bg-amber-100 text-amber-700" title="วิชานี้ให้ TA กรอกชั่วโมงเอง">กรอกชั่วโมงเอง</span>
                           )}
                           <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                             🗓 {scheduleText(s)}

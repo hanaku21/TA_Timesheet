@@ -47,7 +47,15 @@ export async function POST(req) {
   }
 
   const supabase = getSupabase();
-  const term = await getActiveTerm(supabase);
+  // Import targets a chosen academic year/term (defaults to the active one).
+  const active = await getActiveTerm(supabase);
+  const chosenTerm = clean(form.get("term") || "");
+  let term = active;
+  if (chosenTerm && chosenTerm !== active.code) {
+    const { data: tr } = await supabase.from("terms").select("*").eq("code", chosenTerm).maybeSingle();
+    if (!tr) return NextResponse.json({ error: `ไม่พบปีการศึกษา ${chosenTerm}` }, { status: 400 });
+    term = tr;
+  }
   const SEM = term.code;
   const SEM_START = term.start_date || "2026-06-22";
   const SEM_END = term.end_date || "2026-11-03";
@@ -56,12 +64,19 @@ export async function POST(req) {
   const people = peopleFile ? parseCsv(await peopleFile.text()) : [];
   const ems = emsFile ? parseCsv(await emsFile.text()) : [];
 
-  // ---- TOR number per person name (from EMS) ----
-  const torByName = {};
+  // ---- TOR number per person (from EMS). A person may appear with several TOR
+  //      numbers; keep only the most frequent one (top 1), ties -> first seen. ----
+  const torCounts = {}; // name -> { tor -> count }
   for (const r of ems) {
     const name = clean(r["ผู้ช่วยสอน"]);
     const tor = clean(r["เลข TOR"]);
-    if (name && tor && !torByName[name]) torByName[name] = tor;
+    if (!name || !tor) continue;
+    (torCounts[name] = torCounts[name] || {});
+    torCounts[name][tor] = (torCounts[name][tor] || 0) + 1;
+  }
+  const torByName = {};
+  for (const [name, counts] of Object.entries(torCounts)) {
+    torByName[name] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
   }
 
   // ---- ensure curricula exist (the standard 6 + any code seen in EMS) ----
@@ -79,6 +94,18 @@ export async function POST(req) {
 
   // ================= USERS =================
   if (people.length) {
+    // Map existing (non-admin) users by exact full name — only names that are
+    // unique, so we can safely reuse the old email for a returning person.
+    const { data: allExisting } = await supabase.from("users").select("full_name, email, role");
+    const nameCount = {};
+    const emailByName = {};
+    for (const u of allExisting || []) {
+      if (u.role === "admin") continue;
+      nameCount[u.full_name] = (nameCount[u.full_name] || 0) + 1;
+      emailByName[u.full_name] = u.email;
+    }
+    const emailForName = (n) => (nameCount[n] === 1 ? emailByName[n] : null);
+
     const seenEmail = new Set();
     const built = [];
     for (const r of people) {
@@ -91,7 +118,10 @@ export async function POST(req) {
       const phone = clean(r["เบอร์โทร"]);
       // password = phone number, else default "0123456789"
       const pw = phone || "0123456789";
-      if (!email) email = `${(sid || name.replace(/\s+/g, "") || "user")}@camt.info`.toLowerCase();
+      // If this name already exists, reuse the old email (update that user).
+      const existingEmail = emailForName(name);
+      if (existingEmail) email = existingEmail.toLowerCase();
+      else if (!email) email = `${(sid || name.replace(/\s+/g, "") || "user")}@camt.info`.toLowerCase();
       if (seenEmail.has(email)) continue;
       seenEmail.add(email);
       built.push({

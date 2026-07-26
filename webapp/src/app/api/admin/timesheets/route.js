@@ -22,8 +22,8 @@ export async function GET(req) {
   const monthStart = `${month}-01`;
   const monthEnd = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
 
-  // Run the three reads in parallel instead of sequentially.
-  const [entriesRes, curriculaRes, termsRes] = await Promise.all([
+  // Run the reads in parallel instead of sequentially.
+  const [entriesRes, curriculaRes, termsRes, subsRes, usersRes] = await Promise.all([
     supabase
       .from("timesheet_entries")
       .select(
@@ -41,6 +41,8 @@ export async function GET(req) {
       .order("work_date"),
     supabase.from("curricula").select("*").order("id"),
     supabase.from("terms").select("code, name, is_active, start_date, end_date").order("code"),
+    supabase.from("submissions").select("user_id, section_id").eq("term", term).eq("month", month),
+    supabase.from("users").select("id", { count: "exact", head: true }).eq("role", "user").eq("active", true),
   ]);
 
   if (entriesRes.error) return NextResponse.json({ error: entriesRes.error.message }, { status: 500 });
@@ -53,6 +55,8 @@ export async function GET(req) {
     rows,
     curricula: curriculaRes.data || [],
     terms: termsRes.data || [],
+    confirmed: (subsRes.data || []).map((s) => `${s.user_id}|${s.section_id}`), // confirmed (user|section) this month
+    totalUsers: usersRes.count || 0, // all active (non-admin) users
     activeTerm: active.code,
     term,
   });
