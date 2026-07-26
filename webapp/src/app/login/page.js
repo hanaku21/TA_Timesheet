@@ -39,7 +39,7 @@ export default function LoginPage() {
             CT
           </div>
           <h1 className="text-2xl font-bold text-slate-800">CAMT TA Timesheet</h1>
-          <p className="text-sm text-slate-500">ระบบบันทึกเวลาทำงานผู้ช่วยสอน</p>
+          <p className="text-sm text-slate-500">ระบบบันทึกเวลาทำงานผู้ช่วยสอน · Teaching Assistant Timesheet System</p>
         </div>
 
         <form onSubmit={submit} className="card space-y-4">
@@ -50,7 +50,7 @@ export default function LoginPage() {
               className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="อีเมลที่ใช้สมัครในระบบ EMS"
+              placeholder="อีเมลที่ใช้สมัครในระบบ EMS / Email used to register in EMS"
               required
             />
           </div>
@@ -61,12 +61,9 @@ export default function LoginPage() {
               className="input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="เบอร์โทรศัพท์"
+              placeholder="รหัสผ่าน / Password"
               required
             />
-            <p className="mt-1 text-xs text-slate-400">
-              รหัสผ่านเริ่มต้นคือ เบอร์โทรศัพท์ (ถ้าไม่มีเบอร์คือ 0123456789)
-            </p>
           </div>
 
           {err && (
@@ -86,6 +83,8 @@ export default function LoginPage() {
 
           <p className="text-center text-xs text-slate-400">
             หากเข้าสู่ระบบไม่ได้ กรุณาติดต่อผู้ดูแลระบบ
+            <br />
+            If you cannot log in, please contact the administrator
           </p>
         </form>
       </div>
