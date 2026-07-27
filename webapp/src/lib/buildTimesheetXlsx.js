@@ -7,6 +7,8 @@ import { EMP_LABELS, TH_MONTHS } from "@/lib/constants";
 export const SCHOLARSHIP_RATE = 50;
 export const MAX_HOURS_PER_DAY = 8;
 const round2 = (n) => Math.round(n * 100) / 100;
+// round to the nearest 0.5 (scholarship hours must be .0 or .5)
+const roundHalf = (n) => Math.round(n * 2) / 2;
 
 // Timezone-safe date arithmetic (works regardless of server TZ, e.g. UTC+7).
 function addDays(dateStr, days) {
@@ -94,7 +96,7 @@ function buildDisplayRows(user, rows, monthStart, monthEnd, blackouts, cfg) {
 
   // process courses by earliest worked date (deterministic; earlier course claims days first)
   const sections = [...groups.entries()]
-    .map(([sid, g]) => ({ sid, section: g.section, pool: g.pool, worked: [...new Set(g.dates)].sort() }))
+    .map(([sid, g]) => ({ sid, section: g.section, pool: roundHalf(g.pool), worked: [...new Set(g.dates)].sort() }))
     .sort((a, b) => (a.worked[0] || "").localeCompare(b.worked[0] || "") || String(a.sid).localeCompare(String(b.sid)));
 
   const allDays = enumerateDays(monthStart, monthEnd);
