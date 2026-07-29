@@ -4,6 +4,23 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { EMP_LABELS, EMP_BADGE, TH_MONTHS } from "@/lib/constants";
 import { thb, entryHours as calcHours, entryCost as calcCost } from "@/lib/calc";
 import Spinner from "@/components/Spinner";
+import Modal from "@/components/Modal";
+
+const WD_TH = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+function monthMatrix(year, month0) {
+  const first = new Date(year, month0, 1);
+  const startDow = first.getDay();
+  const days = new Date(year, month0 + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(new Date(year, month0, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+const ymd = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 function entryHours(r) {
   return r.section ? calcHours(r.section, r) : 0;
@@ -118,6 +135,15 @@ export default function TimesheetViewer() {
   const dl = (base, uid, sid) =>
     `${base}?user_id=${uid}&month=${month}&term=${term}${sid ? `&section_id=${sid}` : ""}`;
 
+  const [calFor, setCalFor] = useState(null); // { name, section, dates: {date: hours} }
+  function openCalendar(userObj, section, ents) {
+    const map = {};
+    ents
+      .filter((e) => String(e.section?.id) === String(section?.id))
+      .forEach((e) => { map[e.work_date] = entryHours(e); });
+    setCalFor({ name: `${userObj?.title || ""} ${userObj?.full_name}`.trim(), section, dates: map });
+  }
+
   const confirmedSet = new Set(data.confirmed || []); // "user|section"
   const isConfirmed = (uid, sid) => confirmedSet.has(`${uid}|${sid}`);
 
@@ -142,7 +168,8 @@ export default function TimesheetViewer() {
     const peopleDone = Object.keys(perUserTotal).filter(
       (uid) => (perUserConfirmed[uid] || 0) === perUserTotal[uid]
     ).length;
-    return { units, confirmed, people: Object.keys(perUserTotal).length, peopleDone };
+    const peopleSubmitted = Object.keys(perUserConfirmed).length; // >=1 section confirmed
+    return { units, confirmed, people: Object.keys(perUserTotal).length, peopleDone, peopleSubmitted };
   }, [rows, data.confirmed]);
 
   async function toggleConfirm(uid, section, name) {
@@ -221,7 +248,12 @@ export default function TimesheetViewer() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <Stat
+          label="กรอกข้อมูลแล้ว (คน)"
+          value={`${submitStats.people} / ${data.totalUsers ?? submitStats.people}`}
+          accent={(data.totalUsers ?? 0) > 0 && submitStats.people === data.totalUsers ? "emerald" : undefined}
+        />
         <Stat
           label="ยืนยันครบ (คน)"
           value={`${submitStats.peopleDone} / ${data.totalUsers ?? submitStats.people}`}
@@ -284,8 +316,11 @@ export default function TimesheetViewer() {
                   {secs.map(({ section, hours, cost }) => (
                     <tr key={section?.id} className="odd:bg-white even:bg-slate-50">
                       <td className="px-3 py-2">
-                        <span className="font-medium text-slate-700">{section?.course?.code}</span>{" "}
-                        <span className="text-slate-500">{section?.course?.name}</span>
+                        <button type="button" className="text-left hover:underline" title="ดูปฏิทินการลงเวลา"
+                          onClick={() => openCalendar(g.user, section, g.entries)}>
+                          <span className="font-medium text-brand">{section?.course?.code}</span>{" "}
+                          <span className="text-slate-500">{section?.course?.name}</span>
+                        </button>
                         {g.user?.employment_type === "TOR" && (
                           <div className="text-xs text-amber-700">เลข TOR: {section?.tor_number || g.user?.tor_number || "—"}</div>
                         )}
@@ -345,6 +380,45 @@ export default function TimesheetViewer() {
           </div>
         );
       })}
+
+      <Modal
+        open={!!calFor}
+        onClose={() => setCalFor(null)}
+        title={calFor ? `ปฏิทินการลงเวลา — ${calFor.section?.course?.code} ตอน ${calFor.section?.section}` : ""}
+      >
+        {calFor && (
+          <div>
+            <div className="mb-2 text-sm text-slate-600">
+              {calFor.name} · {TH_MONTHS[mm - 1]} {yy + 543}
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-400">
+              {WD_TH.map((w) => <div key={w} className="py-1">{w}</div>)}
+            </div>
+            <div className="mt-1 grid grid-cols-7 gap-1">
+              {monthMatrix(yy, mm - 1).flat().map((d, i) => {
+                if (!d) return <div key={i} />;
+                const h = calFor.dates[ymd(d)];
+                const has = h != null;
+                return (
+                  <div key={i}
+                    title={has ? `${h} ชม.` : ""}
+                    className={`relative flex aspect-square items-center justify-center rounded-lg text-sm ${
+                      has ? "bg-emerald-500 font-semibold text-white" : "bg-slate-50 text-slate-500"
+                    }`}
+                  >
+                    {d.getDate()}
+                    {has && <span className="absolute bottom-0.5 text-[9px] font-normal">{h}</span>}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+              <span className="flex items-center gap-1"><i className="h-3 w-3 rounded bg-emerald-500 inline-block" /> วันที่ลงเวลา</span>
+              <span>รวม {Object.keys(calFor.dates).length} วัน · {Object.values(calFor.dates).reduce((a, b) => a + b, 0)} ชม.</span>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

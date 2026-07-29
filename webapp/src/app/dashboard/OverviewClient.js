@@ -7,6 +7,7 @@ import { EditIcon } from "@/components/Icons";
 import Spinner from "@/components/Spinner";
 import Modal from "@/components/Modal";
 import { fetchTimesheet, invalidateTimesheet } from "@/lib/timesheetCache";
+import { getSavedMonth, setSavedMonth } from "@/lib/monthPref";
 import { localeFromName, makeT, monthLabel } from "@/lib/i18n";
 
 export default function OverviewClient({ employmentType, name }) {
@@ -55,6 +56,10 @@ export default function OverviewClient({ employmentType, name }) {
     })();
     return () => { alive = false; };
   }, []);
+
+  // show the month the user was last working on (from the Log page), then keep it in sync
+  useEffect(() => { const m = getSavedMonth(); if (m) setMonth(m); }, []);
+  useEffect(() => { setSavedMonth(month); }, [month]);
 
   const [yy, mm] = month.split("-").map(Number);
   const entries = data?.entries || [];

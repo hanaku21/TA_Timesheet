@@ -6,6 +6,7 @@ import { hoursPerDay, costPerDay, thb, isModule, entryCost, entryHours, toRate }
 import { localeFromName, makeT, monthLabel, WEEKDAYS } from "@/lib/i18n";
 import { EditIcon } from "@/components/Icons";
 import { fetchTimesheet, invalidateTimesheet } from "@/lib/timesheetCache";
+import { getSavedMonth, setSavedMonth } from "@/lib/monthPref";
 
 function monthMatrix(year, month0) {
   const first = new Date(year, month0, 1);
@@ -43,14 +44,20 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
     setLoading(true);
     const d = await fetchTimesheet({ force });
     setData(d);
-    if (!sectionId && d.sections?.length) {
-      const wanted = initialSectionId && d.sections.find((s) => String(s.id) === String(initialSectionId));
-      setSectionId(String(wanted ? wanted.id : d.sections[0].id));
+    // pick a section only on first load; keep the current one on reloads (after save)
+    if (d.sections?.length) {
+      setSectionId((prev) => {
+        if (prev) return prev;
+        const wanted = initialSectionId && d.sections.find((s) => String(s.id) === String(initialSectionId));
+        return String(wanted ? wanted.id : d.sections[0].id);
+      });
     }
     setLoading(false);
   }, []); // eslint-disable-line
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { const m = getSavedMonth(); if (m) setMonth(m); }, []); // restore last-used month
+  useEffect(() => { setSavedMonth(month); }, [month]); // remember it for the overview
   useEffect(() => { setPicked([]); setRemarks({}); setHoursByDate({}); setMsg(null); }, [month, sectionId]);
   const pickedSet = useMemo(() => new Set(picked), [picked]);
 
