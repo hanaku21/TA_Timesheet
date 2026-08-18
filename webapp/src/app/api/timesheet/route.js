@@ -14,7 +14,7 @@ export async function GET(req) {
   const term = await getActiveTerm(supabase);
 
   // Run the independent reads in parallel instead of sequentially.
-  const [assignsRes, entriesRes, blackoutsRes, subsRes] = await Promise.all([
+  const [assignsRes, entriesRes, blackoutsRes, subsRes, torRes] = await Promise.all([
     supabase
       .from("assignments")
       .select(
@@ -42,16 +42,27 @@ export async function GET(req) {
       .select("month, section_id")
       .eq("user_id", uid)
       .eq("term", term.code),
+    supabase
+      .from("tor_periods")
+      .select("tor_number, start_date, end_date")
+      .eq("term", term.code),
   ]);
+
+  // TOR contract window per tor_number → limits a section's loggable dates.
+  const torByNumber = {};
+  (torRes.data || []).forEach((t) => {
+    torByNumber[t.tor_number] = { start: t.start_date, end: t.end_date };
+  });
 
   const sections = (assignsRes.data || [])
     .filter((a) => a.section)
-    .map((a) => ({
-      assignment_id: a.id,
-      start_date: a.start_date,
-      end_date: a.end_date,
-      ...a.section,
-    }));
+    .map((a) => {
+      const sec = { assignment_id: a.id, start_date: a.start_date, end_date: a.end_date, ...a.section };
+      const tp = sec.tor_number ? torByNumber[sec.tor_number] : null;
+      sec.tor_start = tp?.start || null;
+      sec.tor_end = tp?.end || null;
+      return sec;
+    });
 
   const entries = entriesRes.data;
   const blackouts = blackoutsRes.data;
@@ -121,7 +132,7 @@ export async function POST(req) {
   const { data: assign } = await supabase
     .from("assignments")
     .select(
-      "id, section:sections ( id, curriculum_id, teaching_type, teaching_days, start_time, end_time, rate, expected_cost )"
+      "id, section:sections ( id, curriculum_id, teaching_type, teaching_days, start_time, end_time, rate, expected_cost, tor_number )"
     )
     .eq("user_id", uid)
     .eq("section_id", section_id)
@@ -133,6 +144,29 @@ export async function POST(req) {
   const section = assign.section;
   const curriculumId = section.curriculum_id;
   const moduleSection = isModule(section);
+
+  // TOR contract window: if this section's tor_number has a period, dates must
+  // fall within [start_date, end_date].
+  if (section.tor_number) {
+    const { data: tp } = await supabase
+      .from("tor_periods")
+      .select("start_date, end_date")
+      .eq("tor_number", section.tor_number)
+      .eq("term", term.code)
+      .maybeSingle();
+    if (tp && (tp.start_date || tp.end_date)) {
+      const outside = dates.filter(
+        (d) => (tp.start_date && d < tp.start_date) || (tp.end_date && d > tp.end_date)
+      );
+      if (outside.length > 0) {
+        const fmt = (s) => (s ? s.split("-").reverse().join("/") : "—");
+        return NextResponse.json(
+          { error: `มีวันที่อยู่นอกช่วงสัญญา TOR (${fmt(tp.start_date)} – ${fmt(tp.end_date)}): ${outside.join(", ")}` },
+          { status: 400 }
+        );
+      }
+    }
+  }
 
   // MODULE sections require a positive hours value per day
   if (moduleSection) {

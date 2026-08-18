@@ -89,10 +89,14 @@ export default function TimesheetViewer() {
     return r;
   }, [data.rows, curriculum, type, courseQ]);
 
-  // clamp the month switcher to the selected term's range (เปิดเทอม → ปิดเทอม)
+  // clamp the month switcher to the selected term's range (เปิดเทอม → ปิดเทอม).
+  // DII follows its own calendar; when the DII curriculum filter is selected,
+  // unlock the range so its off-term months are viewable.
   const activeTerm = (data.terms || []).find((t) => t.code === term);
-  const minMonth = activeTerm?.start_date ? activeTerm.start_date.slice(0, 7) : null;
-  const maxMonth = activeTerm?.end_date ? activeTerm.end_date.slice(0, 7) : null;
+  const diiId = (data.curricula || []).find((c) => (c.code || "").toUpperCase() === "DII")?.id;
+  const diiSelected = diiId != null && String(curriculum) === String(diiId);
+  const minMonth = diiSelected ? null : activeTerm?.start_date ? activeTerm.start_date.slice(0, 7) : null;
+  const maxMonth = diiSelected ? null : activeTerm?.end_date ? activeTerm.end_date.slice(0, 7) : null;
 
   useEffect(() => {
     if (!minMonth && !maxMonth) return;
@@ -146,6 +150,24 @@ export default function TimesheetViewer() {
 
   const confirmedSet = new Set(data.confirmed || []); // "user|section"
   const isConfirmed = (uid, sid) => confirmedSet.has(`${uid}|${sid}`);
+
+  // Who is expected to fill this month (respecting the curriculum + type filters)
+  // vs. who actually has entries → drives the "ยังไม่กรอก" drill-down.
+  const expectedUsers = useMemo(() => {
+    let list = data.assignedUsers || [];
+    if (type) list = list.filter((u) => u.employment_type === type);
+    if (curriculum) list = list.filter((u) => (u.curriculum_ids || []).map(String).includes(String(curriculum)));
+    return list;
+  }, [data.assignedUsers, type, curriculum]);
+  const filledIds = useMemo(() => new Set(rows.map((r) => r.user?.id)), [rows]);
+  const notFilled = useMemo(
+    () =>
+      expectedUsers
+        .filter((u) => !filledIds.has(u.id))
+        .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "", "th")),
+    [expectedUsers, filledIds]
+  );
+  const [showNotFilled, setShowNotFilled] = useState(false);
 
   // submission progress across the currently-shown data
   const submitStats = useMemo(() => {
@@ -251,13 +273,15 @@ export default function TimesheetViewer() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat
           label="กรอกข้อมูลแล้ว (คน)"
-          value={`${submitStats.people} / ${data.totalUsers ?? submitStats.people}`}
-          accent={(data.totalUsers ?? 0) > 0 && submitStats.people === data.totalUsers ? "emerald" : undefined}
+          value={`${submitStats.people} / ${expectedUsers.length}`}
+          accent={expectedUsers.length > 0 && submitStats.people === expectedUsers.length ? "emerald" : undefined}
+          hint={notFilled.length > 0 ? `ยังไม่กรอก ${notFilled.length} คน — คลิกเพื่อดู` : "กรอกครบทุกคน"}
+          onClick={() => setShowNotFilled(true)}
         />
         <Stat
           label="ยืนยันครบ (คน)"
-          value={`${submitStats.peopleDone} / ${data.totalUsers ?? submitStats.people}`}
-          accent={(data.totalUsers ?? 0) > 0 && submitStats.peopleDone === data.totalUsers ? "emerald" : undefined}
+          value={`${submitStats.peopleDone} / ${expectedUsers.length}`}
+          accent={expectedUsers.length > 0 && submitStats.peopleDone === expectedUsers.length ? "emerald" : undefined}
         />
         <Stat
           label="ยืนยันแล้ว (วิชา/ตอน)"
@@ -382,6 +406,53 @@ export default function TimesheetViewer() {
       })}
 
       <Modal
+        open={showNotFilled}
+        onClose={() => setShowNotFilled(false)}
+        title={`ยังไม่กรอกข้อมูล — ${TH_MONTHS[mm - 1]} ${yy + 543}`}
+      >
+        <div className="mb-3 text-sm text-slate-600">
+          กรอกแล้ว <b className="text-emerald-600">{submitStats.people}</b> / {expectedUsers.length} คน ·
+          ยังไม่กรอก <b className="text-rose-600">{notFilled.length}</b> คน
+          {(curriculum || type) && <span className="text-slate-400"> (ตามตัวกรองที่เลือก)</span>}
+        </div>
+        {notFilled.length === 0 ? (
+          <div className="rounded-lg bg-emerald-50 px-3 py-6 text-center text-sm text-emerald-700">
+            ทุกคนกรอกข้อมูลของเดือนนี้แล้ว 🎉
+          </div>
+        ) : (
+          <div className="max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-brand-light text-left text-xs font-bold text-slate-700">
+                  <th className="px-3 py-2">ชื่อ-นามสกุล</th>
+                  <th className="px-3 py-2">ประเภท</th>
+                  <th className="px-3 py-2">อีเมล</th>
+                </tr>
+              </thead>
+              <tbody>
+                {notFilled.map((u) => (
+                  <tr key={u.id} className="odd:bg-white even:bg-slate-50">
+                    <td className="px-3 py-2">
+                      {u.title} {u.full_name}
+                      {u.employment_type !== "TOR" && u.student_id && (
+                        <span className="ml-2 text-xs text-slate-400">{u.student_id}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className={`badge ${EMP_BADGE[u.employment_type] || ""}`}>
+                        {EMP_LABELS[u.employment_type] || u.employment_type}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-slate-500">{u.email}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={!!calFor}
         onClose={() => setCalFor(null)}
         title={calFor ? `ปฏิทินการลงเวลา — ${calFor.section?.course?.code} ตอน ${calFor.section?.section}` : ""}
@@ -423,11 +494,19 @@ export default function TimesheetViewer() {
   );
 }
 
-function Stat({ label, value, accent }) {
+function Stat({ label, value, accent, hint, onClick }) {
+  const clickable = typeof onClick === "function";
   return (
-    <div className="card py-3">
+    <div
+      className={`card py-3 ${clickable ? "cursor-pointer transition hover:ring-2 hover:ring-brand/30" : ""}`}
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+    >
       <div className={`text-2xl font-bold ${accent === "emerald" ? "text-emerald-600" : "text-brand"}`}>{value}</div>
       <div className="text-xs text-slate-500">{label}</div>
+      {hint && <div className="mt-0.5 text-[11px] text-slate-400">{hint}</div>}
     </div>
   );
 }

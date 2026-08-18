@@ -10,6 +10,7 @@ export default async function LogPage({ searchParams }) {
   const session = await getSession();
   const t = makeT(localeFromName(session?.name));
   const initialSectionId = searchParams?.section || "";
+  const initialMonth = searchParams?.month || "";
   return (
     <div className="min-h-screen">
       <NavBar name={session?.name} role={session?.role} employmentType={session?.emp} />
@@ -18,7 +19,7 @@ export default async function LogPage({ searchParams }) {
           <h2 className="text-lg font-bold text-slate-800">{t("logTitle")}</h2>
           <Link href="/dashboard" className="btn-ghost text-sm">{t("backOverview")}</Link>
         </div>
-        <TimesheetClient name={session?.name} employmentType={session?.emp} initialSectionId={initialSectionId} />
+        <TimesheetClient name={session?.name} employmentType={session?.emp} initialSectionId={initialSectionId} initialMonth={initialMonth} />
       </main>
     </div>
   );

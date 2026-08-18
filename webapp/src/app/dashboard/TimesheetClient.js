@@ -21,13 +21,15 @@ function monthMatrix(year, month0) {
   return weeks;
 }
 
-export default function TimesheetClient({ name, employmentType, initialSectionId }) {
+export default function TimesheetClient({ name, employmentType, initialSectionId, initialMonth }) {
   const locale = localeFromName(name);
   const t = makeT(locale);
   const isScholarship = employmentType === "SCHOLARSHIP"; // ป.ตรี: no remark field
   const WD = WEEKDAYS[locale];
   const now = new Date();
-  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const fmtISO = (s) => (s ? s.split("-").reverse().join("/") : "—"); // yyyy-mm-dd -> dd/mm/yyyy
+  const validMonth = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : null;
+  const [month, setMonth] = useState(validMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [data, setData] = useState(null);
   const [sectionId, setSectionId] = useState("");
   const [picked, setPicked] = useState([]); // ordered array of "YYYY-MM-DD"
@@ -56,7 +58,8 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
   }, []); // eslint-disable-line
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { const m = getSavedMonth(); if (m) setMonth(m); }, []); // restore last-used month
+  // restore last-used month — but only when the URL didn't specify one
+  useEffect(() => { if (!validMonth) { const m = getSavedMonth(); if (m) setMonth(m); } }, []); // eslint-disable-line
   useEffect(() => { setSavedMonth(month); }, [month]); // remember it for the overview
   useEffect(() => { setPicked([]); setRemarks({}); setHoursByDate({}); setMsg(null); }, [month, sectionId]);
   const pickedSet = useMemo(() => new Set(picked), [picked]);
@@ -83,8 +86,14 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
     return m;
   }, [sectionEntries]);
 
-  const semStart = data?.semester?.start;
-  const semEnd = data?.semester?.end;
+  // A section's loggable window:
+  //  • if it has a TOR contract period → lock to [tor_start, tor_end]
+  //  • else if DII (own calendar) → no lock
+  //  • else → the active term's open/close range
+  const isDii = (section?.curriculum?.code || "").toUpperCase() === "DII";
+  const hasTor = !!(section?.tor_start && section?.tor_end);
+  const semStart = hasTor ? section.tor_start : isDii ? null : data?.semester?.start;
+  const semEnd = hasTor ? section.tor_end : isDii ? null : data?.semester?.end;
 
   function blackoutFor(dateStr) {
     return (data?.blackouts || []).find((b) => {
@@ -320,6 +329,13 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
               ) : (
                 <div className="mt-2 text-xs text-slate-400">{t("noBudgetSet")}</div>
               )}
+            </div>
+          )}
+
+          {hasTor && (
+            <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              {locale === "en" ? "TOR contract period" : "ช่วงสัญญา TOR"}
+              {section?.tor_number ? ` (${section.tor_number})` : ""}: {fmtISO(section.tor_start)} – {fmtISO(section.tor_end)}
             </div>
           )}
 

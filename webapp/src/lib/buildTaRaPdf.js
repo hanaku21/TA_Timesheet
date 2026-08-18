@@ -4,12 +4,11 @@ import { TH_MONTHS } from "@/lib/constants";
 import { bahtText } from "@/lib/bahtText";
 import { fmtDateTaRa, deriveLevelAndProgram } from "@/lib/buildTaRaXlsx";
 import { LAKSAMAN_REGULAR_B64, LAKSAMAN_BOLD_B64 } from "@/lib/fontsData";
+import { wrapTextLines } from "@/lib/textWrap";
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const num = (n, dp = 0) =>
   Number(n).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
-
-const ROWS_PER_PAGE = 10; // records per page
 
 // "แบบใบเบิกค่าตอบแทนทุนผู้ช่วยสอน" (TA/RA) as a PDF — A4 landscape.
 // `title` overrides the first line (TOR/จ้างเหมา reuses this template).
@@ -47,6 +46,9 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
   const tw = (s, f, size) => f.widthOfTextAtSize(String(s ?? ""), size);
   const text = (s, x, yy2, size, f) => page.drawText(String(s ?? ""), { x, y: yy2, size, font: f, color: black });
   const centered = (s, cx, yy2, size, f) => text(s, cx - tw(s, f, size) / 2, yy2, size, f);
+
+  // Break a string into lines that fit within maxW, at Thai word boundaries.
+  const wrapLines = (s, f, size, maxW) => wrapTextLines(s, maxW, (t) => tw(t, f, size));
 
   // ---- Title ----
   centered(title || "แบบใบเบิกค่าตอบแทนทุนผู้ช่วยสอน", PAGE_W / 2, y - 14, 14, bold);
@@ -94,8 +96,10 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
 
   // ---- Table ----
   const HROW = 32;
-  const ROW = 20;
-  const PAD = 5;
+  const ROW = 20;       // minimum (single-line) data-row height
+  const PAD = 5;        // horizontal padding inside a cell
+  const LINE_H = 11;    // line spacing for wrapped text
+  const PAD_V = 4;      // vertical padding inside a wrapped cell
   const colX = (i) => {
     let x = MARGIN;
     for (let k = 0; k < i; k++) x += cols[k].w;
@@ -109,11 +113,18 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
       page.drawLine({ start: { x, y: topY }, end: { x, y: topY - h }, thickness: 0.7, color: black });
     }
   };
+  // wrapped lines a value needs in column i (for row-height measurement)
+  const cellLines = (i, s, size) => wrapLines(s, font, size, cols[i].w - PAD * 2);
   const cell = (i, s, topY, h, f, size) => {
     const c = cols[i];
-    const yT = topY - h + (h - size) / 2 + 1;
-    if (c.align === "left") text(s, colX(i) + PAD, yT, size, f);
-    else centered(s, colX(i) + c.w / 2, yT, size, f);
+    const lines = wrapLines(s, f, size, c.w - PAD * 2);
+    const BH = size + (lines.length - 1) * LINE_H;     // visual block height
+    const firstBase = topY - size - (h - BH) / 2 + 1;  // vertically centered
+    lines.forEach((ln, k) => {
+      const yy = firstBase - k * LINE_H;
+      if (c.align === "left") text(ln, colX(i) + PAD, yy, size, f);
+      else centered(ln, colX(i) + c.w / 2, yy, size, f);
+    });
   };
 
   // table header (supports the 2-line labels) — redrawn at the top of each page
@@ -135,31 +146,58 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
   const fullName = `${user.title || ""}${user.full_name}`.trim();
   const rows = displayRows || [];
   let total = 0;
-  let onPage = 0; // records drawn on the current page (max ROWS_PER_PAGE)
+
+  // footer block (total row + signature grid) height — reserved so a row never
+  // gets orphaned at the very bottom of a page.
+  const FOOTER_H = ROW + 26 + (24 + 4 * 17 + 6);
+  const DATA_BOTTOM = MARGIN + 30; // lowest a data row may reach
+
+  // Height a record needs = tallest wrapped cell in that row.
+  const rowHeight = (e) => {
+    const sec = e.section || {};
+    const specs = [
+      [0, fullName, 9.5],
+      [1, fmtDateTaRa(e.work_date), 9.5],
+      [2, sec.course?.code || "", 9.5],
+      [3, e.hours, 9.5],
+      [4, num(e.rate), 9.5],
+      [5, num(e.money), 9.5],
+      [7, e.remark || "", 9],
+    ];
+    let lines = 1;
+    for (const [i, s, size] of specs) lines = Math.max(lines, cellLines(i, s, size).length);
+    return Math.max(ROW, lines * LINE_H + PAD_V * 2);
+  };
 
   rows.forEach((e) => {
-    if (onPage === ROWS_PER_PAGE) {
-      // new continuation page: repeat the table header
+    const rh = rowHeight(e);
+    if (y - rh < DATA_BOTTOM) {
+      // continuation page: repeat the table header
       page = doc.addPage([PAGE_W, PAGE_H]);
       y = PAGE_H - MARGIN;
       drawTableHeader();
-      onPage = 0;
     }
     const sec = e.section || {};
     total = round2(total + Number(e.money || 0));
-    grid(y, ROW);
-    cell(0, fullName, y, ROW, font, 9.5);
-    cell(1, fmtDateTaRa(e.work_date), y, ROW, font, 9.5);
-    cell(2, sec.course?.code || "", y, ROW, font, 9.5);
-    cell(3, e.hours, y, ROW, font, 9.5);
-    cell(4, num(e.rate), y, ROW, font, 9.5);
-    cell(5, num(e.money), y, ROW, font, 9.5);
-    cell(7, e.remark || "", y, ROW, font, 9);
-    y -= ROW;
-    onPage += 1;
+    grid(y, rh);
+    cell(0, fullName, y, rh, font, 9.5);
+    cell(1, fmtDateTaRa(e.work_date), y, rh, font, 9.5);
+    cell(2, sec.course?.code || "", y, rh, font, 9.5);
+    cell(3, e.hours, y, rh, font, 9.5);
+    cell(4, num(e.rate), y, rh, font, 9.5);
+    cell(5, num(e.money), y, rh, font, 9.5);
+    cell(7, e.remark || "", y, rh, font, 9);
+    y -= rh;
   });
-  // pad the last page up to ROWS_PER_PAGE with blank ruled rows
-  for (let k = onPage; k < ROWS_PER_PAGE; k++) {
+
+  // keep the total row + signature block together on one page
+  if (y - FOOTER_H < MARGIN) {
+    page = doc.addPage([PAGE_W, PAGE_H]);
+    y = PAGE_H - MARGIN;
+    drawTableHeader();
+  }
+  // pad with blank ruled rows so the total row sits near the page bottom
+  while (y - ROW - FOOTER_H >= MARGIN) {
     grid(y, ROW);
     y -= ROW;
   }

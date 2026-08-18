@@ -89,9 +89,29 @@ export default function OverviewClient({ employmentType, name }) {
     subs.some((s) => s.month === month && String(s.section_id) === String(sectionId));
   const allConfirmed = withData.length > 0 && withData.every((r) => isConfirmed(r.s.id));
 
-  // Limit the month switcher to the active term (เปิดเทอม → ปิดเทอม).
-  const minMonth = data?.semester?.start ? data.semester.start.slice(0, 7) : null;
-  const maxMonth = data?.semester?.end ? data.semester.end.slice(0, 7) : null;
+  // DII runs on its own academic calendar, so its sections are exempt from the
+  // term open/close month lock — a DII TA can log any month.
+  const isDii = sections.some((s) => (s.curriculum?.code || "").toUpperCase() === "DII");
+
+  // TOR sections may run past the term dates, so widen the switcher to cover
+  // any section's contract window too.
+  const torBounds = sections.reduce(
+    (acc, s) => {
+      if (s.tor_start && (!acc.min || s.tor_start < acc.min)) acc.min = s.tor_start;
+      if (s.tor_end && (!acc.max || s.tor_end > acc.max)) acc.max = s.tor_end;
+      return acc;
+    },
+    { min: null, max: null }
+  );
+  const termMin = data?.semester?.start ? data.semester.start.slice(0, 7) : null;
+  const termMax = data?.semester?.end ? data.semester.end.slice(0, 7) : null;
+  const torMin = torBounds.min ? torBounds.min.slice(0, 7) : null;
+  const torMax = torBounds.max ? torBounds.max.slice(0, 7) : null;
+
+  // Limit the month switcher to the active term (เปิดเทอม → ปิดเทอม), unless DII;
+  // union with the TOR windows so those months stay reachable.
+  const minMonth = isDii ? null : [termMin, torMin].filter(Boolean).sort()[0] || null;
+  const maxMonth = isDii ? null : [termMax, torMax].filter(Boolean).sort().slice(-1)[0] || null;
 
   // Clamp the selected month into the term once the term is known.
   useEffect(() => {
@@ -179,7 +199,7 @@ export default function OverviewClient({ employmentType, name }) {
                   <td className="px-3 py-2 text-right">{hours}</td>
                   <td className="px-3 py-2 text-right font-medium text-emerald-700">{thb(cost)}</td>
                   <td className="px-3 py-2 text-right">
-                    <Link className="btn-sky" title={t("logEntry")} href={`/dashboard/log?section=${s.id}`}><EditIcon size={15} /></Link>
+                    <Link className="btn-sky" title={t("logEntry")} href={`/dashboard/log?section=${s.id}&month=${month}`}><EditIcon size={15} /></Link>
                   </td>
                   <td className="px-3 py-2 text-right">
                     {days === 0 ? (

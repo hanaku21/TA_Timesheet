@@ -3,6 +3,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { TH_MONTHS } from "@/lib/constants";
 import { computeWorkTimeRows } from "@/lib/workTimeSheet";
 import { LAKSAMAN_REGULAR_B64, LAKSAMAN_BOLD_B64 } from "@/lib/fontsData";
+import { wrapTextLines } from "@/lib/textWrap";
 
 // "Work time sheet TA Student (CMU Rate)" as a PDF (A4 portrait).
 // The DD/MM/YY and Course (Key) cells are visually merged across the rows of a
@@ -45,6 +46,9 @@ export async function buildWorkTimeSheetPdf({ user, month, displayRows }) {
   const tw = (s, f, size) => f.widthOfTextAtSize(String(s ?? ""), size);
   const text = (p, s, x, yv, size, f) => p.drawText(String(s ?? ""), { x, y: yv, size, font: f, color: black });
   const centered = (p, s, cx, yv, size, f) => text(p, s, cx - tw(s, f, size) / 2, yv, size, f);
+
+  // Break text into lines that fit maxW, at Thai word boundaries.
+  const wrapLines = (s, f, size, maxW) => wrapTextLines(s, maxW, (t) => tw(t, f, size));
 
   const colX = (i) => {
     let x = MARGIN;
@@ -116,8 +120,20 @@ export async function buildWorkTimeSheetPdf({ user, month, displayRows }) {
     for (let i = 0; i <= cols.length; i++) {
       vLine(pg, i === cols.length ? MARGIN + CONTENT_W : colX(i), yTop, yB);
     }
-    const put = (i, s, size = 8) =>
-      centered(pg, s, colX(i) + cols[i].w / 2, yB + (ROW - size) / 2 + 1, size, font);
+    const put = (i, s, size = 8) => {
+      const maxW = cols[i].w - 6;
+      let sz = size;
+      let lines = wrapLines(s, font, sz, maxW);
+      // if it wraps, shrink once so two lines fit inside the fixed row height
+      if (lines.length > 1 && sz > 6.5) { sz -= 1.5; lines = wrapLines(s, font, sz, maxW); }
+      const LH = sz + 2;
+      const BH = sz + (lines.length - 1) * LH;
+      const yTopCell = yB + ROW;
+      const topPad = (ROW - BH) / 2;
+      lines.forEach((ln, k) =>
+        centered(pg, ln, colX(i) + cols[i].w / 2, yTopCell - topPad - sz - k * LH + 1, sz, font)
+      );
+    };
     put(1, row.timeIn);
     put(3, row.timeOut);
     put(5, row.hours);

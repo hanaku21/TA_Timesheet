@@ -24,6 +24,12 @@ const EMS_ROWS = [
   ["DG", "953201", "Game Module", "002", "TOR (จ้างเหมา)", "1574", "MODULE", "[]", "", "", "อ.สมคิด", "8000", "300", "300", "อดิศร รับเหมา"],
 ];
 
+const TOR_COLS = ["เลข TOR", "วันเริ่มงาน", "ระยะเวลา (วัน)", "วันสิ้นสุด", "ยอดสั่งจ้าง", "หมายเหตุ"];
+const TOR_ROWS = [
+  ["CAMT/1898", "2026-06-22", "135", "2026-11-02", "9000", ""],
+  ["CAMT/1903", "2026-06-22", "135", "2026-11-02", "12000", ""],
+];
+
 // RFC-4180 CSV escaping + UTF-8 BOM (so Excel opens Thai correctly)
 function toCsv(cols, rows) {
   const esc = (v) => {
@@ -79,6 +85,12 @@ export default function ImportManager() {
   const [cfgMsg, setCfgMsg] = useState(null);
   const [terms, setTerms] = useState([]);
   const [term, setTerm] = useState("");
+  // TOR contract-period import
+  const [torFile, setTorFile] = useState(null);
+  const [showTorSample, setShowTorSample] = useState(false);
+  const [torLoading, setTorLoading] = useState(false);
+  const [torResult, setTorResult] = useState(null);
+  const [torErr, setTorErr] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/settings").then((r) => r.json()).then((d) => {
@@ -151,6 +163,28 @@ export default function ImportManager() {
       setErr(e2.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function submitTor(e) {
+    e.preventDefault();
+    setTorErr("");
+    setTorResult(null);
+    if (!torFile) { setTorErr("กรุณาเลือกไฟล์ CSV ของ TOR"); return; }
+    if (!term) { setTorErr("กรุณาเลือกปีการศึกษาที่จะนำเข้า"); return; }
+    const fd = new FormData();
+    fd.append("file", torFile);
+    fd.append("term", term);
+    setTorLoading(true);
+    try {
+      const res = await fetch("/api/admin/import-tor", { method: "POST", body: fd });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "นำเข้าไม่สำเร็จ");
+      setTorResult(d);
+    } catch (e2) {
+      setTorErr(e2.message);
+    } finally {
+      setTorLoading(false);
     }
   }
 
@@ -287,6 +321,76 @@ export default function ImportManager() {
             )}
             <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
               นำเข้าเรียบร้อย
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* TOR contract periods import */}
+    <div className="grid gap-5 lg:grid-cols-2">
+      <form onSubmit={submitTor} className="card space-y-4">
+        <h3 className="font-semibold text-slate-700">นำเข้าช่วงสัญญา TOR (จ้างเหมา)</h3>
+        <p className="text-sm text-slate-500">
+          ผูกวันเริ่มงาน–วันสิ้นสุดเข้ากับเลข TOR แต่ละวิชา/section ที่มีเลข TOR ตรงกัน
+          จะลง timesheet ได้เฉพาะภายในช่วงวันของสัญญานั้น (อัปเดตซ้ำได้)
+        </p>
+
+        <div>
+          <label className="label">นำเข้าไปยังปีการศึกษา *</label>
+          <select className="input" value={term} onChange={(e) => setTerm(e.target.value)}>
+            {terms.length === 0 && <option value="">— ยังไม่มีปีการศึกษา —</option>}
+            {terms.map((t) => (
+              <option key={t.code} value={t.code}>{t.code}{t.is_active ? " (ใช้งานอยู่)" : ""}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="label">ไฟล์ TOR</label>
+          <input type="file" accept=".csv" className="input"
+            onChange={(e) => setTorFile(e.target.files?.[0] || null)} />
+          <p className="mt-1 text-xs text-slate-400">
+            เช่น <code>TOR_2569-1.csv</code> · เลข TOR ต้องอยู่ในรูปแบบเดียวกับข้อมูลวิชา (เช่น <code>CAMT/1898</code>)
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            <button type="button" className="btn-edit"
+              onClick={() => downloadCsv("ตัวอย่าง_TOR.csv", TOR_COLS, TOR_ROWS)}>
+              ⬇ ดาวน์โหลดไฟล์ตัวอย่าง
+            </button>
+            <button type="button" className="btn-soft" onClick={() => setShowTorSample((v) => !v)}>
+              {showTorSample ? "ซ่อนตัวอย่าง" : "ดูคอลัมน์ + ตัวอย่าง"}
+            </button>
+          </div>
+          {showTorSample && <SamplePreview cols={TOR_COLS} rows={TOR_ROWS} />}
+        </div>
+
+        {torErr && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{torErr}</div>}
+
+        <button className="btn-primary w-full" disabled={torLoading}>
+          {torLoading ? "กำลังนำเข้า..." : "นำเข้าช่วงสัญญา TOR"}
+        </button>
+      </form>
+
+      <div className="card">
+        <h3 className="mb-3 font-semibold text-slate-700">ผลการนำเข้า TOR</h3>
+        {!torResult && <p className="text-sm text-slate-400">ยังไม่มีการนำเข้า</p>}
+        {torResult && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="TOR ที่นำเข้า" value={torResult.imported} />
+              <Stat label="จับคู่ section ได้" value={torResult.matchedSections} />
+              <Stat label="ยังไม่มี section ตรงกัน" value={torResult.unmatched} />
+              <Stat label="ข้าม (ไม่มีวันที่)" value={torResult.skipped} />
+            </div>
+            {torResult.unmatched > 0 && (
+              <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                มี {torResult.unmatched} เลข TOR ที่ยังไม่มีวิชา/section ตรงกันในปีการศึกษานี้
+                (จะเริ่มมีผลเมื่อ section ที่มีเลข TOR นั้นถูกนำเข้า)
+              </div>
+            )}
+            <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              นำเข้าเรียบร้อย (ปีการศึกษา {torResult.term})
             </div>
           </div>
         )}

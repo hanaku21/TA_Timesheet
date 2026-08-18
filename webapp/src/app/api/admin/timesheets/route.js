@@ -23,7 +23,7 @@ export async function GET(req) {
   const monthEnd = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
 
   // Run the reads in parallel instead of sequentially.
-  const [entriesRes, curriculaRes, termsRes, subsRes, usersRes] = await Promise.all([
+  const [entriesRes, curriculaRes, termsRes, subsRes, assignsRes] = await Promise.all([
     supabase
       .from("timesheet_entries")
       .select(
@@ -42,7 +42,15 @@ export async function GET(req) {
     supabase.from("curricula").select("*").order("id"),
     supabase.from("terms").select("code, name, is_active, start_date, end_date").order("code"),
     supabase.from("submissions").select("user_id, section_id").eq("term", term).eq("month", month),
-    supabase.from("users").select("id", { count: "exact", head: true }).eq("role", "user").eq("active", true),
+    // Everyone expected to fill a timesheet this term = active TAs with an
+    // assignment (plus the curricula they work in, for filtering the list).
+    supabase
+      .from("assignments")
+      .select(
+        `user:users ( id, title, full_name, email, employment_type, student_id, tor_number, active, role ),
+         section:sections ( curriculum_id )`
+      )
+      .eq("semester", term),
   ]);
 
   if (entriesRes.error) return NextResponse.json({ error: entriesRes.error.message }, { status: 500 });
@@ -51,12 +59,30 @@ export async function GET(req) {
   if (curriculum) rows = rows.filter((r) => String(r.section?.curriculum_id) === String(curriculum));
   if (type) rows = rows.filter((r) => r.user?.employment_type === type);
 
+  // De-duplicate assigned users; collect the curricula each one works in.
+  const uMap = new Map();
+  (assignsRes.data || []).forEach((a) => {
+    const u = a.user;
+    if (!u || u.active === false || u.role !== "user") return;
+    if (!uMap.has(u.id)) {
+      uMap.set(u.id, {
+        id: u.id, title: u.title, full_name: u.full_name, email: u.email,
+        employment_type: u.employment_type, student_id: u.student_id, tor_number: u.tor_number,
+        curriculum_ids: new Set(),
+      });
+    }
+    const cid = a.section?.curriculum_id;
+    if (cid != null) uMap.get(u.id).curriculum_ids.add(cid);
+  });
+  const assignedUsers = [...uMap.values()].map((u) => ({ ...u, curriculum_ids: [...u.curriculum_ids] }));
+
   return NextResponse.json({
     rows,
     curricula: curriculaRes.data || [],
     terms: termsRes.data || [],
     confirmed: (subsRes.data || []).map((s) => `${s.user_id}|${s.section_id}`), // confirmed (user|section) this month
-    totalUsers: usersRes.count || 0, // all active (non-admin) users
+    assignedUsers, // active TAs expected to fill this term (+ their curricula)
+    totalUsers: assignedUsers.length, // # of expected TAs
     activeTerm: active.code,
     term,
   });
