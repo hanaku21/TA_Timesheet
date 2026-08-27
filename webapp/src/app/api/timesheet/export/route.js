@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { computeDisplayRows } from "@/lib/buildTimesheetXlsx";
 import { formWorkbook, combinedWorkbook } from "@/lib/exportForms";
 import { getActiveTerm } from "@/lib/term";
+import { fetchFrozenRows, mergeFrozenRows } from "@/lib/frozenRows";
 
 export const runtime = "nodejs";
 
@@ -82,8 +83,10 @@ export async function GET(req) {
   };
 
   // Compute redistributed rows GLOBALLY across all sections (shared day-cap),
-  // then optionally keep only the requested section.
+  // then swap in any confirmed (frozen) snapshots so their dates don't change.
   let displayRows = computeDisplayRows({ user, rows: rows || [], month, blackouts: blk, payConfig });
+  const frozen = await fetchFrozenRows(supabase, targetUid, term, month);
+  displayRows = mergeFrozenRows(displayRows, frozen);
   let chosenSec = null;
   if (sectionId) {
     displayRows = displayRows.filter((r) => String(r.section?.id) === String(sectionId));

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { getSession } from "@/lib/auth";
 import { getActiveTerm } from "@/lib/term";
+import { computeUserDisplayRows } from "@/lib/frozenRows";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,7 @@ export async function POST(req) {
   const active = await getActiveTerm(supabase);
   const term = b.term || active.code;
 
+  // Base confirmation (works even if the frozen_rows column doesn't exist yet).
   const { error } = await supabase
     .from("submissions")
     .upsert(
@@ -27,6 +29,24 @@ export async function POST(req) {
       { onConflict: "user_id,term,month,section_id" }
     );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Best-effort: freeze ทุน ป.ตรี document rows (no-op if column absent).
+  try {
+    const { data: user } = await supabase
+      .from("users")
+      .select("id, title, full_name, employment_type, tor_number, student_id")
+      .eq("id", user_id)
+      .maybeSingle();
+    if (user?.employment_type === "SCHOLARSHIP") {
+      const all = await computeUserDisplayRows(supabase, user, term, month);
+      const frozenRows = all.filter((r) => String(r.section?.id) === String(section_id));
+      await supabase
+        .from("submissions")
+        .update({ frozen_rows: frozenRows })
+        .eq("user_id", user_id).eq("term", term).eq("month", month).eq("section_id", section_id);
+    }
+  } catch { /* freeze is optional */ }
+
   return NextResponse.json({ ok: true });
 }
 

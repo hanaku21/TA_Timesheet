@@ -147,9 +147,10 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
   const rows = displayRows || [];
   let total = 0;
 
-  // footer block (total row + signature grid) height — reserved so a row never
-  // gets orphaned at the very bottom of a page.
-  const FOOTER_H = ROW + 26 + (24 + 4 * 17 + 6);
+  // footer block (total row + signature grid) reserve. The true block is
+  // ROW+26+98=144, but we reserve slightly less so an 11th row fits on page 1
+  // (the total row + signature simply sit a little lower on the page).
+  const FOOTER_H = ROW + 26 + (24 + 4 * 17 + 6) - 12; // 132
   const DATA_BOTTOM = MARGIN + 30; // lowest a data row may reach
 
   // Height a record needs = tallest wrapped cell in that row.

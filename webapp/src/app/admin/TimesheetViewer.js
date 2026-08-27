@@ -151,6 +151,11 @@ export default function TimesheetViewer() {
   const confirmedSet = new Set(data.confirmed || []); // "user|section"
   const isConfirmed = (uid, sid) => confirmedSet.has(`${uid}|${sid}`);
 
+  // ทุน ป.ตรี: converted hours + claimable amount (50฿/hr) per user|section
+  const conv = data.converted || {};
+  const schRate = data.scholarshipRate || 50;
+  const convOf = (uid, sid) => conv[`${uid}|${sid}`] || null;
+
   // Who is expected to fill this month (respecting the curriculum + type filters)
   // vs. who actually has entries → drives the "ยังไม่กรอก" drill-down.
   const expectedUsers = useMemo(() => {
@@ -159,6 +164,29 @@ export default function TimesheetViewer() {
     if (curriculum) list = list.filter((u) => (u.curriculum_ids || []).map(String).includes(String(curriculum)));
     return list;
   }, [data.assignedUsers, type, curriculum]);
+  // Confirmation progress measured against ASSIGNED วิชา/ตอน (not just those with
+  // data), so all three cards are mutually consistent:
+  //   • ยืนยันแล้ว (วิชา/ตอน) = assigned units that are confirmed / all assigned units
+  //   • ยืนยันครบ (คน)        = people who confirmed EVERY assigned section of theirs
+  const progress = useMemo(() => {
+    let units = data.assignedUnits || [];
+    if (type) units = units.filter((u) => u.employment_type === type);
+    if (curriculum) units = units.filter((u) => String(u.curriculum_id) === String(curriculum));
+    const confSet = new Set(data.confirmed || []);
+    let confirmedUnits = 0;
+    const totalByUser = {}, confByUser = {};
+    units.forEach((u) => {
+      totalByUser[u.user_id] = (totalByUser[u.user_id] || 0) + 1;
+      if (confSet.has(`${u.user_id}|${u.section_id}`)) {
+        confirmedUnits += 1;
+        confByUser[u.user_id] = (confByUser[u.user_id] || 0) + 1;
+      }
+    });
+    const peopleDone = Object.keys(totalByUser).filter(
+      (uid) => (confByUser[uid] || 0) === totalByUser[uid]
+    ).length;
+    return { totalUnits: units.length, confirmedUnits, peopleDone };
+  }, [data.assignedUnits, data.confirmed, type, curriculum]);
   const filledIds = useMemo(() => new Set(rows.map((r) => r.user?.id)), [rows]);
   const notFilled = useMemo(
     () =>
@@ -280,13 +308,13 @@ export default function TimesheetViewer() {
         />
         <Stat
           label="ยืนยันครบ (คน)"
-          value={`${submitStats.peopleDone} / ${expectedUsers.length}`}
-          accent={expectedUsers.length > 0 && submitStats.peopleDone === expectedUsers.length ? "emerald" : undefined}
+          value={`${progress.peopleDone} / ${expectedUsers.length}`}
+          accent={expectedUsers.length > 0 && progress.peopleDone === expectedUsers.length ? "emerald" : undefined}
         />
         <Stat
           label="ยืนยันแล้ว (วิชา/ตอน)"
-          value={`${submitStats.confirmed} / ${submitStats.units}`}
-          accent={submitStats.units > 0 && submitStats.confirmed === submitStats.units ? "emerald" : undefined}
+          value={`${progress.confirmedUnits} / ${progress.totalUnits || submitStats.units}`}
+          accent={progress.totalUnits > 0 && progress.confirmedUnits === progress.totalUnits ? "emerald" : undefined}
         />
         <Stat label="รวมชั่วโมง" value={sumHours(rows)} />
         <Stat label="รวมค่าจ้าง (บาท)" value={thb(sumCost(rows))} accent="emerald" />
@@ -301,6 +329,12 @@ export default function TimesheetViewer() {
       {!loading && byUser.map((g) => {
         const secs = bySection(g.entries);
         const uid = g.user?.id;
+        const isSch = g.user?.employment_type === "SCHOLARSHIP";
+        const convTotals = secs.reduce((a, { section }) => {
+          const c = convOf(uid, section?.id);
+          if (c) { a.hours = Math.round((a.hours + c.hours) * 100) / 100; a.money = Math.round((a.money + c.money) * 100) / 100; }
+          return a;
+        }, { hours: 0, money: 0 });
         return (
           <div key={uid} className="card">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -319,6 +353,11 @@ export default function TimesheetViewer() {
                 </span>
                 <span className="badge bg-slate-100 text-slate-600">{sumHours(g.entries)} ชม.</span>
                 <span className="badge bg-emerald-100 text-emerald-700">{thb(sumCost(g.entries))} บาท</span>
+                {isSch && (
+                  <span className="badge bg-amber-100 text-amber-700" title={`แปลงที่ ${schRate} บาท/ชม.`}>
+                    เบิกได้ {convTotals.hours} ชม. · {thb(convTotals.money)} บาท
+                  </span>
+                )}
               </div>
             </div>
 
@@ -331,6 +370,8 @@ export default function TimesheetViewer() {
                     <th className="px-3 py-2">ประเภท</th>
                     <th className="px-3 py-2 text-right">ชั่วโมง</th>
                     <th className="px-3 py-2 text-right">ยอดเงิน (บาท)</th>
+                    {isSch && <th className="px-3 py-2 text-right">ชม. เบิกได้ ({schRate}฿)</th>}
+                    {isSch && <th className="px-3 py-2 text-right">ยอดเบิก (บาท)</th>}
                     <th className="px-3 py-2 text-right">ยืนยันข้อมูล</th>
                     <th className="px-3 py-2 text-right">ดาวน์โหลด</th>
                     <th className="px-3 py-2 text-right">ลบ</th>
@@ -357,6 +398,8 @@ export default function TimesheetViewer() {
                       </td>
                       <td className="px-3 py-2 text-right text-slate-600">{hours}</td>
                       <td className="px-3 py-2 text-right font-medium text-emerald-700">{thb(cost)}</td>
+                      {isSch && <td className="px-3 py-2 text-right font-medium text-amber-700">{convOf(uid, section?.id)?.hours ?? "—"}</td>}
+                      {isSch && <td className="px-3 py-2 text-right font-medium text-amber-700">{convOf(uid, section?.id) ? thb(convOf(uid, section?.id).money) : "—"}</td>}
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         {(() => {
                           const on = isConfirmed(uid, section?.id);
@@ -396,6 +439,8 @@ export default function TimesheetViewer() {
                     <td className="px-3 py-2" colSpan={3}>รวม {secs.length} วิชา/ตอน</td>
                     <td className="px-3 py-2 text-right">{sumHours(g.entries)}</td>
                     <td className="px-3 py-2 text-right text-emerald-700">{thb(sumCost(g.entries))}</td>
+                    {isSch && <td className="px-3 py-2 text-right text-amber-700">{convTotals.hours}</td>}
+                    {isSch && <td className="px-3 py-2 text-right text-amber-700">{thb(convTotals.money)}</td>}
                     <td /><td /><td />
                   </tr>
                 </tfoot>

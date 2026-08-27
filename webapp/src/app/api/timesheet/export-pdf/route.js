@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { computeDisplayRows } from "@/lib/buildTimesheetXlsx";
 import { formPdf, combinedPdf } from "@/lib/exportForms";
 import { getActiveTerm } from "@/lib/term";
+import { fetchFrozenRows, mergeFrozenRows } from "@/lib/frozenRows";
 
 export const runtime = "nodejs";
 
@@ -79,6 +80,8 @@ export async function GET(req) {
   };
 
   let displayRows = computeDisplayRows({ user, rows: rows || [], month, blackouts: blk, payConfig });
+  const frozen = await fetchFrozenRows(supabase, targetUid, term, month);
+  displayRows = mergeFrozenRows(displayRows, frozen);
   let chosenSec = null;
   if (sectionId) {
     displayRows = displayRows.filter((r) => String(r.section?.id) === String(sectionId));
