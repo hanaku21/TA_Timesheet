@@ -12,7 +12,7 @@ const num = (n, dp = 0) =>
 
 // "แบบใบเบิกค่าตอบแทนทุนผู้ช่วยสอน" (TA/RA) as a PDF — A4 landscape.
 // `title` overrides the first line (TOR/จ้างเหมา reuses this template).
-export async function buildTaRaPdf({ user, month, displayRows, title }) {
+export async function buildTaRaPdf({ user, month, displayRows, title, signatories }) {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(Buffer.from(LAKSAMAN_REGULAR_B64, "base64"), { subset: true });
@@ -228,10 +228,13 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
 
   // ---- Signature footer: 4 boxed blocks, aligned to the columns above ----
   //   col 0 | cols 1–3 | cols 4–5 | cols 6–7
+  // When enabled by admin, the head-of-department and approver blocks are
+  // pre-filled with a name (inside the parentheses) and a position.
+  const sig = signatories && signatories.enabled ? signatories : null;
   const blocks = [
     { from: 0, to: 1, label: "ผู้จัดทำ/ผู้ตรวจสอบ" },
-    { from: 1, to: 4, label: "หัวหน้าภาควิชาหรือตำแหน่งอื่นที่เทียบเท่า" },
-    { from: 4, to: 6, label: "ผู้อนุมัติ" },
+    { from: 1, to: 4, label: "หัวหน้าภาควิชาหรือตำแหน่งอื่นที่เทียบเท่า", fill: sig?.head },
+    { from: 4, to: 6, label: "ผู้อนุมัติ", fill: sig?.approver },
     { from: 6, to: 8, label: "ผู้จ่ายเงิน" },
   ];
   const edge = (i) => (i >= cols.length ? MARGIN + CONTENT_W : colX(i));
@@ -270,7 +273,10 @@ export async function buildTaRaPdf({ user, month, displayRows, title }) {
     const size = tw(b.label, bold, 9.5) > bw - 8 ? 7.5 : 9.5;
     centered(b.label, cx, y - FH / 2 - 3, size, bold);
     kinds.forEach((kind, k) => {
-      centered(dotLine(kind, bw), cx, y - FH - 14 - k * 17, LSIZE, font);
+      const yy = y - FH - 14 - k * 17;
+      if (kind === "paren" && b.fill?.name) { centered(`(${b.fill.name})`, cx, yy, LSIZE, font); return; }
+      if (kind === "role" && b.fill?.position) { centered(`ตำแหน่ง ${b.fill.position}`, cx, yy, LSIZE, font); return; }
+      centered(dotLine(kind, bw), cx, yy, LSIZE, font);
     });
   });
 

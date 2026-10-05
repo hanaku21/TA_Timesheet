@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { entryHours, entryCost, thb } from "@/lib/calc";
+import { entryHours, entryCost, thb, costPerDay, isModule, toRate } from "@/lib/calc";
 import { EditIcon } from "@/components/Icons";
 import Spinner from "@/components/Spinner";
 import Modal from "@/components/Modal";
@@ -80,6 +80,36 @@ export default function OverviewClient({ employmentType, name }) {
       .sort((a, b) => (a.s.course?.code || "").localeCompare(b.s.course?.code || ""));
   }, [sections, entries, month]);
 
+  // ---- whole-term budget per section (expected_cost vs. everything logged) ----
+  const budgets = useMemo(() => {
+    const list = sections.map((s) => {
+      const all = entries.filter((e) => String(e.section_id) === String(s.id));
+      const used = Math.round(all.reduce((a, e) => a + entryCost(s, e), 0) * 100) / 100;
+      const thisMonth = Math.round(
+        all.filter((e) => e.work_date.slice(0, 7) === month).reduce((a, e) => a + entryCost(s, e), 0) * 100
+      ) / 100;
+      const budget = s.expected_cost == null ? null : Number(s.expected_cost);
+      const remaining = budget == null ? null : Math.round((budget - used) * 100) / 100;
+      const perDay = costPerDay(s);
+      const rate = toRate(s.rate);
+      const mod = isModule(s);
+      const moreDays = !mod && remaining != null && perDay > 0 ? Math.max(0, Math.floor((remaining + 1e-6) / perDay)) : null;
+      const moreHours = mod && remaining != null && rate > 0 ? Math.max(0, Math.floor((remaining / rate) * 100) / 100) : null;
+      return { s, budget, used, thisMonth, remaining, moreDays, moreHours, days: all.length };
+    });
+    return list.sort((a, b) => (a.s.course?.code || "").localeCompare(b.s.course?.code || ""));
+  }, [sections, entries, month]);
+  const budgetTotal = useMemo(() => {
+    const t = { budget: 0, used: 0, thisMonth: 0, remaining: 0, noBudget: 0 };
+    budgets.forEach((b) => {
+      t.used += b.used;
+      t.thisMonth += b.thisMonth;
+      if (b.budget == null) t.noBudget += 1;
+      else { t.budget += b.budget; t.remaining += b.remaining; }
+    });
+    return t;
+  }, [budgets]);
+
   const withData = rows.filter((r) => r.days > 0);
   const totalCost = Math.round(withData.reduce((a, r) => a + r.cost, 0) * 100) / 100;
 
@@ -142,6 +172,115 @@ export default function OverviewClient({ employmentType, name }) {
           <h2 className="text-lg font-bold text-slate-800">{t("myClaims")}</h2>
           <p className="text-sm text-slate-500">{t("overviewSub")}</p>
         </div>
+        <button
+          type="button"
+          className="btn bg-red-50 text-sm text-red-700 ring-1 ring-red-200 hover:bg-red-100"
+          title={t("announceBtnHint")}
+          onClick={() => window.dispatchEvent(new Event("ta:open-announcements"))}
+        >
+          📢 {t("announceBtn")}
+        </button>
+      </div>
+
+      {/* Whole-term budget summary */}
+      {!loading && sections.length > 0 && (
+        <div className="card">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h3 className="font-semibold text-slate-700">{t("budgetTitle")}</h3>
+              <p className="text-xs text-slate-500">{t("budgetSub")}</p>
+            </div>
+            <div className="text-sm text-slate-600">
+              {t("budgetTotal")}: {t("budgetUsed")} <b className="text-brand">{thb(budgetTotal.used)}</b> / {t("budgetFull")} <b>{thb(budgetTotal.budget)}</b> {t("baht")}
+              {" · "}{t("budgetLeft")} <b className={budgetTotal.remaining < 0 ? "text-red-600" : "text-emerald-700"}>{thb(budgetTotal.remaining)}</b> {t("baht")}
+            </div>
+          </div>
+          {/* จ้างเหมา: ใบวางบิล / ใบเสร็จรับเงิน per เลข TOR */}
+          {isTOR && (() => {
+            const tors = [...new Set(sections.map((s) => s.tor_number).filter(Boolean))];
+            if (tors.length === 0) return null;
+            return (
+              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2">
+                <div className="text-sm font-semibold text-amber-800">{t("torDocsTitle")}</div>
+                <div className="mb-2 text-xs text-amber-700/80">{t("torDocsSub")}</div>
+                <ul className="space-y-1.5">
+                  {tors.map((tor) => {
+                    const secs = sections.filter((s) => s.tor_number === tor);
+                    const codes = [...new Set(secs.map((s) => s.course?.code).filter(Boolean))].join(", ");
+                    return (
+                      <li key={tor} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-1.5 ring-1 ring-amber-100">
+                        <div className="text-sm">
+                          <span className="font-semibold text-slate-700">{t("colTor")} {tor}</span>
+                          <span className="ml-2 text-xs text-slate-500">{codes}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs text-slate-500">{t("torBill")}:</span>
+                          <a className="btn-edit" href={`/api/timesheet/tor-doc?kind=bill&format=xlsx&tor=${encodeURIComponent(tor)}`}>⬇ .xlsx</a>
+                          <a className="btn-soft" href={`/api/timesheet/tor-doc?kind=bill&format=pdf&tor=${encodeURIComponent(tor)}`}>⬇ .pdf</a>
+                          <span className="ml-2 text-xs text-slate-500">{t("torReceipt")}:</span>
+                          <a className="btn-edit" href={`/api/timesheet/tor-doc?kind=receipt&format=xlsx&tor=${encodeURIComponent(tor)}`}>⬇ .xlsx</a>
+                          <a className="btn-soft" href={`/api/timesheet/tor-doc?kind=receipt&format=pdf&tor=${encodeURIComponent(tor)}`}>⬇ .pdf</a>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })()}
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {budgets.map(({ s, budget, used, thisMonth, remaining, moreDays, moreHours }) => {
+              const over = remaining != null && remaining < -1e-6;
+              const low = !over && budget > 0 && remaining / budget < 0.1;
+              const pct = budget > 0 ? Math.min(100, (used / budget) * 100) : 0;
+              return (
+                <div key={s.id} className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-100">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-700" title={s.course?.name}>
+                        {s.course?.code} <span className="font-normal text-slate-500">{s.course?.name}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        {t("colSection")} {s.section} · {s.curriculum?.code} · {s.teaching_type || "—"}
+                      </div>
+                    </div>
+                    {over && <span className="badge shrink-0 bg-red-100 text-red-700">{t("budgetOver")}</span>}
+                  </div>
+                  {budget == null ? (
+                    <div className="mt-2 text-xs text-slate-400">{t("budgetNone")} · {t("budgetUsed")} {thb(used)} {t("baht")}</div>
+                  ) : (
+                    <>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-600">
+                        <span>{t("budgetFull")} <b className="text-slate-800">{thb(budget)}</b></span>
+                        <span>{t("budgetUsed")} <b className="text-brand">{thb(used)}</b></span>
+                        <span>{t("budgetThisMonth")} <b className="text-emerald-700">{thb(thisMonth)}</b></span>
+                        <span>{t("budgetLeft")} <b className={over ? "text-red-600" : low ? "text-amber-600" : "text-slate-800"}>{thb(remaining)}</b></span>
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                          <div className={`h-full ${over ? "bg-red-500" : low ? "bg-amber-500" : "bg-brand"}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="w-10 text-right text-[11px] text-slate-500">{Math.round((used / budget) * 100)}%</span>
+                      </div>
+                      {!over && (moreDays != null || moreHours != null) && (
+                        <div className="mt-1 text-[11px] text-slate-400">
+                          {moreDays != null ? t("budgetDaysLeft", { n: moreDays }) : t("budgetHoursLeft", { n: moreHours })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Section heading: monthly time logging */}
+      <div className="pt-2">
+        <h3 className="text-base font-bold text-slate-800">{t("logSectionTitle")}</h3>
+        <p className="text-xs text-slate-500">{t("logSectionSub")}</p>
       </div>
 
       {/* Month switcher + total */}

@@ -139,6 +139,15 @@ export default function TimesheetViewer() {
   const dl = (base, uid, sid) =>
     `${base}?user_id=${uid}&month=${month}&term=${term}${sid ? `&section_id=${sid}` : ""}`;
 
+  // สรุปค่าใช้จ่ายแยกตามประเภทการจ้าง (.xlsx) — follows the current month/term/filters
+  const summaryUrl = (() => {
+    const qs = new URLSearchParams({ month });
+    if (term) qs.set("term", term);
+    if (curriculum) qs.set("curriculum", curriculum);
+    if (type) qs.set("type", type);
+    return `/api/admin/summary?${qs}`;
+  })();
+
   const [calFor, setCalFor] = useState(null); // { name, section, dates: {date: hours} }
   function openCalendar(userObj, section, ents) {
     const map = {};
@@ -196,6 +205,37 @@ export default function TimesheetViewer() {
     [expectedUsers, filledIds]
   );
   const [showNotFilled, setShowNotFilled] = useState(false);
+
+  // ---- Budget: expected_cost vs. used (whole term) per assigned section ----
+  const budgetRows = useMemo(() => {
+    let list = data.budgets || [];
+    if (type) list = list.filter((b) => b.employment_type === type);
+    if (curriculum) list = list.filter((b) => String(b.curriculum_id) === String(curriculum));
+    if (courseQ.trim()) {
+      const needle = courseQ.trim().toLowerCase();
+      list = list.filter((b) => (b.course_code || "").toLowerCase().includes(needle));
+    }
+    return list;
+  }, [data.budgets, type, curriculum, courseQ]);
+  // per section + per person lookups used inside each TA card
+  const budgetBySection = useMemo(() => {
+    const m = {};
+    budgetRows.forEach((b) => { m[b.section_id] = b; });
+    return m;
+  }, [budgetRows]);
+  const budgetByUser = useMemo(() => {
+    const m = {};
+    budgetRows.forEach((b) => {
+      const g = (m[b.user_id] ||= { sections: 0, budget: 0, used: 0, month: 0, remaining: 0, noBudget: 0 });
+      g.sections += 1;
+      g.used += b.used;
+      g.month += b.month;
+      if (b.budget == null) g.noBudget += 1;
+      else { g.budget += b.budget; g.remaining += b.remaining; }
+    });
+    return m;
+  }, [budgetRows]);
+
 
   // submission progress across the currently-shown data
   const submitStats = useMemo(() => {
@@ -320,6 +360,22 @@ export default function TimesheetViewer() {
         <Stat label="รวมค่าจ้าง (บาท)" value={thb(sumCost(rows))} accent="emerald" />
       </div>
 
+      {/* Download: cost summary by employment type */}
+      <div className="card flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-slate-700">ดาวน์โหลดสรุปค่าใช้จ่าย แยกตามประเภทการจ้าง</h3>
+          <p className="mt-0.5 text-sm text-slate-500">
+            ไฟล์ .xlsx <b>เฉพาะรายการที่กดยืนยันนำส่งแล้ว</b> ของเดือน {TH_MONTHS[mm - 1]} {yy + 543} (ปีการศึกษา {term || "—"})
+            {curriculum && ` · หลักสูตร ${(data.curricula || []).find((c) => String(c.id) === String(curriculum))?.code || ""}`}
+            {type && ` · ${EMP_LABELS[type]}`}
+            {" "}— sheet “สรุปรวม” (ทุกประเภท + แยกตามหลักสูตร) และแยก 1 sheet ต่อประเภท: “TOR (จ้างเหมา)” / “ทุน ป.ตรี” / “TA-RA” (สรุปของประเภทนั้น + รายคน-รายวิชา/ตอน)
+          </p>
+        </div>
+        <a className="btn-primary whitespace-nowrap" href={summaryUrl} download>
+          ⬇ ดาวน์โหลดสรุป (.xlsx)
+        </a>
+      </div>
+
       {loading && <Spinner />}
       {!loading && byUser.length === 0 && (
         <div className="card text-center text-sm text-slate-400">ไม่มีข้อมูลในเดือนนี้</div>
@@ -361,6 +417,48 @@ export default function TimesheetViewer() {
               </div>
             </div>
 
+            {/* Budget per course/section for this person (whole term) */}
+            {(() => {
+              const g = budgetByUser[uid];
+              if (!g) return null;
+              return (
+                <div className="mb-3 rounded-xl bg-slate-50 px-3 py-2">
+                  <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className="font-semibold">งบรายวิชา (ทั้งปีการศึกษา {term})</span>
+                    <span>· {g.sections} วิชา/ตอน</span>
+                    {g.noBudget > 0 && <span>· ไม่กำหนดงบ {g.noBudget} ตอน</span>}
+                  </div>
+                  <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                    {budgetRows.filter((b) => b.user_id === uid).map((b) => {
+                      const bo = b.remaining != null && b.remaining < -1e-6;
+                      const bl = !bo && b.budget > 0 && b.remaining / b.budget < 0.1;
+                      const bp = b.budget > 0 ? Math.min(100, (b.used / b.budget) * 100) : 0;
+                      return (
+                        <div key={b.section_id} className="rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-slate-200">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <span className="truncate font-medium text-slate-700" title={b.course_name}>
+                              {b.course_code} <span className="text-slate-400">ตอน {b.section}</span>
+                            </span>
+                            {bo && <span className="badge bg-red-100 text-red-700">เกินงบ</span>}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-slate-500">
+                            <span>เต็ม <b className="text-slate-700">{b.budget == null ? "—" : thb(b.budget)}</b></span>
+                            <span>ใช้ไป <b className="text-brand">{thb(b.used)}</b></span>
+                            <span>เหลือ <b className={bo ? "text-red-600" : bl ? "text-amber-600" : "text-emerald-700"}>{b.remaining == null ? "—" : thb(b.remaining)}</b></span>
+                          </div>
+                          {b.budget > 0 && (
+                            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                              <div className={`h-full ${bo ? "bg-red-400" : bl ? "bg-amber-400" : "bg-brand/70"}`} style={{ width: `${bp}%` }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -370,6 +468,9 @@ export default function TimesheetViewer() {
                     <th className="px-3 py-2">ประเภท</th>
                     <th className="px-3 py-2 text-right">ชั่วโมง</th>
                     <th className="px-3 py-2 text-right">ยอดเงิน (บาท)</th>
+                    <th className="px-3 py-2 text-right">งบเต็ม (ทั้งเทอม)</th>
+                    <th className="px-3 py-2 text-right">ใช้ไป (ทั้งเทอม)</th>
+                    <th className="px-3 py-2 text-right">คงเหลือ</th>
                     {isSch && <th className="px-3 py-2 text-right">ชม. เบิกได้ ({schRate}฿)</th>}
                     {isSch && <th className="px-3 py-2 text-right">ยอดเบิก (บาท)</th>}
                     <th className="px-3 py-2 text-right">ยืนยันข้อมูล</th>
@@ -398,6 +499,23 @@ export default function TimesheetViewer() {
                       </td>
                       <td className="px-3 py-2 text-right text-slate-600">{hours}</td>
                       <td className="px-3 py-2 text-right font-medium text-emerald-700">{thb(cost)}</td>
+                      {(() => {
+                        const b = budgetBySection[section?.id];
+                        if (!b) return <><td className="px-3 py-2 text-right text-slate-400">—</td><td className="px-3 py-2 text-right text-slate-400">—</td><td className="px-3 py-2 text-right text-slate-400">—</td></>;
+                        const over = b.remaining != null && b.remaining < -1e-6;
+                        const low = !over && b.budget > 0 && b.remaining / b.budget < 0.1;
+                        return (
+                          <>
+                            <td className="px-3 py-2 text-right text-slate-600">
+                              {b.budget == null ? <span className="text-slate-400">—</span> : thb(b.budget)}
+                            </td>
+                            <td className="px-3 py-2 text-right text-slate-600" title={`${b.days} วัน`}>{thb(b.used)}</td>
+                            <td className={`px-3 py-2 text-right font-semibold ${over ? "text-red-600" : low ? "text-amber-600" : "text-slate-700"}`}>
+                              {b.remaining == null ? <span className="font-normal text-slate-400">—</span> : thb(b.remaining)}
+                            </td>
+                          </>
+                        );
+                      })()}
                       {isSch && <td className="px-3 py-2 text-right font-medium text-amber-700">{convOf(uid, section?.id)?.hours ?? "—"}</td>}
                       {isSch && <td className="px-3 py-2 text-right font-medium text-amber-700">{convOf(uid, section?.id) ? thb(convOf(uid, section?.id).money) : "—"}</td>}
                       <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -439,6 +557,9 @@ export default function TimesheetViewer() {
                     <td className="px-3 py-2" colSpan={3}>รวม {secs.length} วิชา/ตอน</td>
                     <td className="px-3 py-2 text-right">{sumHours(g.entries)}</td>
                     <td className="px-3 py-2 text-right text-emerald-700">{thb(sumCost(g.entries))}</td>
+                    <td className="px-3 py-2 text-right text-slate-600">{budgetByUser[uid] ? thb(budgetByUser[uid].budget) : "—"}</td>
+                    <td className="px-3 py-2 text-right text-slate-600">{budgetByUser[uid] ? thb(budgetByUser[uid].used) : "—"}</td>
+                    <td className={`px-3 py-2 text-right ${budgetByUser[uid]?.remaining < 0 ? "text-red-600" : "text-slate-700"}`}>{budgetByUser[uid] ? thb(budgetByUser[uid].remaining) : "—"}</td>
                     {isSch && <td className="px-3 py-2 text-right text-amber-700">{convTotals.hours}</td>}
                     {isSch && <td className="px-3 py-2 text-right text-amber-700">{thb(convTotals.money)}</td>}
                     <td /><td /><td />

@@ -22,6 +22,8 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "เข้าสู่ระบบไม่สำเร็จ");
+      // one-shot flag: the announcement modal shows only on the first dashboard view after login
+      try { sessionStorage.setItem("ta_announce_pending", "1"); } catch { /* ignore */ }
       // keep loading = true through the navigation so the button doesn't flash back
       router.push(data.role === "admin" ? "/admin" : "/dashboard");
       router.refresh();

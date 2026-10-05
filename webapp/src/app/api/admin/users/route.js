@@ -17,7 +17,7 @@ export async function GET(req) {
   const q = (req.nextUrl.searchParams.get("q") || "").trim();
   let query = supabase
     .from("users")
-    .select("id, title, full_name, email, employment_type, student_id, tor_number, phone, role, report_status, active")
+    .select("id, title, full_name, email, employment_type, student_id, tor_number, phone, role, report_status, active, bank, account_no, address, id_card")
     .order("full_name");
   if (q) query = query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,student_id.ilike.%${q}%,tor_number.ilike.%${q}%`);
   const { data, error } = await query;
@@ -46,6 +46,10 @@ export async function POST(req) {
     student_id: (b.student_id || "").trim() || null,
     tor_number: (b.tor_number || "").trim() || null,
     phone: (b.phone || "").trim() || null,
+    bank: (b.bank || "").trim() || null,
+    account_no: (b.account_no || "").trim() || null,
+    address: (b.address || "").trim() || null,
+    id_card: (b.id_card || "").trim() || null,
     password_hash, role: "user",
   };
   const { data, error } = await supabase.from("users").insert(row).select("id").single();
@@ -61,7 +65,7 @@ export async function PATCH(req) {
   if (!b.id) return NextResponse.json({ error: "missing id" }, { status: 400 });
 
   const upd = {};
-  ["title", "full_name", "phone", "student_id", "tor_number"].forEach((k) => {
+  ["title", "full_name", "phone", "student_id", "tor_number", "bank", "account_no", "address", "id_card"].forEach((k) => {
     if (k in b) upd[k] = (b[k] || "").trim() || null;
   });
   if (b.email) upd.email = String(b.email).trim().toLowerCase();

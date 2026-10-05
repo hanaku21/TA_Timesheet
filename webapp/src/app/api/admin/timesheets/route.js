@@ -24,7 +24,7 @@ export async function GET(req) {
   const monthEnd = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
 
   // Run the reads in parallel instead of sequentially.
-  const [entriesRes, curriculaRes, termsRes, subsRes, assignsRes, cfgRes] = await Promise.all([
+  const [entriesRes, curriculaRes, termsRes, subsRes, assignsRes, cfgRes, termEntriesRes] = await Promise.all([
     supabase
       .from("timesheet_entries")
       .select(
@@ -49,10 +49,16 @@ export async function GET(req) {
       .from("assignments")
       .select(
         `user:users ( id, title, full_name, email, employment_type, student_id, tor_number, active, role ),
-         section:sections ( id, curriculum_id )`
+         section:sections ( id, section, teaching_type, curriculum_id, expected_cost, rate, start_time, end_time,
+           course:courses ( code, name ), curriculum:curricula ( code ) )`
       )
       .eq("semester", term),
     supabase.from("settings").select("key, value").in("key", ["scholarship_rate", "scholarship_max_hours"]),
+    // Every entry of the term (not just this month) -> budget used per section.
+    supabase
+      .from("timesheet_entries")
+      .select("section_id, work_date, hours, section:sections ( start_time, end_time, rate )")
+      .eq("semester", term),
   ]);
 
   if (entriesRes.error) return NextResponse.json({ error: entriesRes.error.message }, { status: 500 });
@@ -84,13 +90,56 @@ export async function GET(req) {
     .filter((a) => a.user && a.user.active !== false && a.user.role === "user" && a.section)
     .map((a) => ({ user_id: a.user.id, section_id: a.section.id, employment_type: a.user.employment_type, curriculum_id: a.section.curriculum_id }));
 
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  // ---- Budget per assigned section: expected_cost vs. used (whole term) + this month ----
+  const usedBySection = {};   // sid -> cost over the whole term
+  const monthBySection = {};  // sid -> cost in the selected month
+  const daysBySection = {};
+  (termEntriesRes.data || []).forEach((e) => {
+    if (!e.section) return;
+    const c = entryCost(e.section, e);
+    usedBySection[e.section_id] = round2((usedBySection[e.section_id] || 0) + c);
+    daysBySection[e.section_id] = (daysBySection[e.section_id] || 0) + 1;
+    if (e.work_date >= monthStart && e.work_date <= monthEnd) {
+      monthBySection[e.section_id] = round2((monthBySection[e.section_id] || 0) + c);
+    }
+  });
+  const seenSec = new Set();
+  const budgets = [];
+  (assignsRes.data || []).forEach((a) => {
+    const sec = a.section;
+    const u = a.user;
+    if (!sec || !u || u.active === false || u.role !== "user") return;
+    if (seenSec.has(sec.id)) return;
+    seenSec.add(sec.id);
+    const budget = sec.expected_cost == null ? null : Number(sec.expected_cost);
+    const used = usedBySection[sec.id] || 0;
+    budgets.push({
+      section_id: sec.id,
+      course_code: sec.course?.code || "",
+      course_name: sec.course?.name || "",
+      section: sec.section,
+      teaching_type: sec.teaching_type,
+      curriculum_id: sec.curriculum_id,
+      curriculum_code: sec.curriculum?.code || "",
+      user_id: u.id,
+      user_name: `${u.title || ""}${u.full_name}`.trim(),
+      employment_type: u.employment_type,
+      budget,
+      used,
+      month: monthBySection[sec.id] || 0,
+      days: daysBySection[sec.id] || 0,
+      remaining: budget == null ? null : round2(budget - used),
+    });
+  });
+
   // ---- ทุน ป.ตรี: converted hours + claimable amount per (user|section) ----
   // The reimbursement converts the real earned money to hours at the scholarship
   // rate (rounded to 0.5). Use the frozen snapshot when a section is confirmed;
   // otherwise compute the same total from the entries.
   const kv = Object.fromEntries((cfgRes.data || []).map((s) => [s.key, s.value]));
   const RATE = Number(kv.scholarship_rate) || 50;
-  const round2 = (n) => Math.round(n * 100) / 100;
   const roundHalf = (n) => Math.round(n * 2) / 2;
 
   const frozenBy = {}; // "uid|sid" -> {hours, money} from the confirmed document
@@ -126,6 +175,7 @@ export async function GET(req) {
     assignedUsers, // active TAs expected to fill this term (+ their curricula)
     assignedUnits, // every assigned (user, section) expected this term
     totalUsers: assignedUsers.length, // # of expected TAs
+    budgets, // per assigned section: budget (expected_cost) / used (term) / month / remaining
     converted, // ทุน ป.ตรี: { "uid|sid": { hours, money } } after 50฿/hr conversion
     scholarshipRate: RATE,
     activeTerm: active.code,

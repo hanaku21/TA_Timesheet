@@ -192,27 +192,91 @@ export async function buildTimesheetPdf({ user, month, payConfig, displayRows })
     "ผู้อนุมัติ",
     "ผู้จ่ายเงิน",
   ];
-  const bw = CONTENT_W / 4;
+  //const bw = CONTENT_W / 4;
+
+  //new columnwidth at below
+  const columnWidths = [
+  CONTENT_W * 0.20, // Column 1
+  CONTENT_W * 0.30, // Column 2 ลดลง
+  CONTENT_W * 0.30, // Column 3 เพิ่มขึ้น
+  CONTENT_W * 0.20, // Column 4
+  ];
+
+  let currentX = MARGIN;
+
   blocks.forEach((label, i) => {
-    const cx = MARGIN + bw * i + bw / 2;
-    // wrap the long department label onto two lines if needed
-    let ly = y;
-    if (textW(label, bold, 10.5) > bw - 8) {
-      const words = label.split("หรือ");
-      drawCentered(page, words[0] + "หรือ", cx, ly - 11, 10.5, bold);
-      drawCentered(page, words[1] || "", cx, ly - 24, 10.5, bold);
-      ly -= 13;
-    } else {
-      drawCentered(page, label, cx, ly - 11, 10.5, bold);
-    }
-    const lines = [
-      "ลงชื่อ ..............................................",
-      "(..............................................)",
-      "ตำแหน่ง ..........................................",
-      "วันที่ ......./......./.......",
-    ];
-    lines.forEach((txt, k) => drawCentered(page, txt, cx, ly - 34 - k * 18, 10, font));
-  });
+  const bw = columnWidths[i];
+  const cx = currentX + bw / 2;
+
+  let ly = y;
+
+  if (textW(label, bold, 10.5) > bw - 8) {
+    const words = label.split("หรือ");
+
+    drawCentered(
+      page,
+      words[0] + "หรือ",
+      cx,
+      ly - 11,
+      10.5,
+      bold
+    );
+
+    drawCentered(
+      page,
+      words[1] || "",
+      cx,
+      ly - 24,
+      10.5,
+      bold
+    );
+
+    ly -= 13;
+  } else {
+    drawCentered(page, label, cx, ly - 11, 10.5, bold);
+  }
+
+  const lines = [
+    "ลงชื่อ ..............................................",
+    "(..............................................)",
+    "ตำแหน่ง ..........................................",
+    "วันที่ ......./......./.......",
+  ];
+
+  lines.forEach((txt, k) =>
+    drawCentered(
+      page,
+      txt,
+      cx,
+      ly - 34 - k * 18,
+      10,
+      font
+    )
+  );
+
+  currentX += bw;
+});
+
+  // blocks.forEach((label, i) => {
+  //   const cx = MARGIN + bw * i + bw / 2;
+  //   // wrap the long department label onto two lines if needed
+  //   let ly = y;
+  //   if (textW(label, bold, 10.5) > bw - 8) {
+  //     const words = label.split("หรือ");
+  //     drawCentered(page, words[0] + "หรือ", cx, ly - 11, 10.5, bold);
+  //     drawCentered(page, words[1] || "", cx, ly - 24, 10.5, bold);
+  //     ly -= 13;
+  //   } else {
+  //     drawCentered(page, label, cx, ly - 11, 10.5, bold);
+  //   }
+  //   const lines = [
+  //     "ลงชื่อ ..............................................",
+  //     "(..............................................)",
+  //     "ตำแหน่ง ..........................................",
+  //     "วันที่ ......./......./.......",
+  //   ];
+  //   lines.forEach((txt, k) => drawCentered(page, txt, cx, ly - 34 - k * 18, 10, font));
+  // });
 
   const bytes = await doc.save();
   return Buffer.from(bytes);

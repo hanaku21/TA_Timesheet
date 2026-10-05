@@ -5,6 +5,7 @@ import { computeDisplayRows } from "@/lib/buildTimesheetXlsx";
 import { formPdf, combinedPdf } from "@/lib/exportForms";
 import { getActiveTerm } from "@/lib/term";
 import { fetchFrozenRows, mergeFrozenRows } from "@/lib/frozenRows";
+import { readSignatories } from "@/lib/signatories";
 
 export const runtime = "nodejs";
 
@@ -91,10 +92,12 @@ export async function GET(req) {
     }
   }
 
+  const signatories = await readSignatories(supabase);
+
   // One section -> single form. All sections -> one form page per section (merged).
   const buffer = chosenSec
-    ? await formPdf({ user, month, displayRows, payConfig })
-    : await combinedPdf({ user, month, displayRows, payConfig });
+    ? await formPdf({ user, month, displayRows, payConfig, signatories })
+    : await combinedPdf({ user, month, displayRows, payConfig, signatories });
 
   const [ynum, mnum] = month.split("-");
   let fnameRaw;

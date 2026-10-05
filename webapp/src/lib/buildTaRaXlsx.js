@@ -41,7 +41,7 @@ export function deriveLevelAndProgram(displayRows) {
 
 // "แบบใบเบิกค่าตอบแทนทุนผู้ช่วยสอน" — the TA/RA form.
 // `title` overrides the first line (TOR/จ้างเหมา reuses this template with its own title).
-export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: extWb, sheetName }) {
+export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: extWb, sheetName, signatories }) {
   const wb = extWb || new ExcelJS.Workbook();
   if (!extWb) wb.creator = "CAMT TA Timesheet";
   const ws = wb.addWorksheet(sheetName || "ใบเบิก", {
@@ -194,10 +194,13 @@ export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: e
   // ---- Signature footer: 4 blocks, aligned to the columns above ----
   //   A       | B–D                                   | E–F        | G–H
   //   ชื่อผู้สอน | วันที่ + กระบวนวิชา + จำนวนชั่วโมง        | ค่าสอน+รวมเงิน | ผู้รับเงิน+หมายเหตุ
+  // When enabled, the head-of-department and approver blocks are pre-filled
+  // with a name (inside the parentheses) and a position.
+  const sig = signatories && signatories.enabled ? signatories : null;
   const blocks = [
     { start: "A", end: "A", label: "ผู้จัดทำ/ผู้ตรวจสอบ" },
-    { start: "B", end: "D", label: "หัวหน้าภาควิชาหรือตำแหน่งอื่นที่เทียบเท่า" },
-    { start: "E", end: "F", label: "ผู้อนุมัติ" },
+    { start: "B", end: "D", label: "หัวหน้าภาควิชาหรือตำแหน่งอื่นที่เทียบเท่า", fill: sig?.head },
+    { start: "E", end: "F", label: "ผู้อนุมัติ", fill: sig?.approver },
     { start: "G", end: "H", label: "ผู้จ่ายเงิน" },
   ];
   const headRow = r;
@@ -221,8 +224,9 @@ export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: e
   const DPU = 1.9; // ~dots per Excel column-width unit
   const dotsFor = (units) => ".".repeat(Math.max(4, Math.round(units * DPU)));
 
-  const makeLine = (kind, w) => {
-    if (kind === "paren") return "(" + dotsFor(w - 2) + ")";
+  const makeLine = (kind, w, fill) => {
+    if (kind === "paren") return fill?.name ? `(${fill.name})` : "(" + dotsFor(w - 2) + ")";
+    if (kind === "role" && fill?.position) return `ตำแหน่ง ${fill.position}`;
     const prefix = kind === "sign" ? "ลงชื่อ " : kind === "role" ? "ตำแหน่ง " : "วันที่ ";
     return prefix + dotsFor(w - prefix.length);
   };
@@ -233,7 +237,7 @@ export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: e
     blocks.forEach((b) => {
       mergeIf(`${b.start}${rr}`, `${b.end}${rr}`);
       const c = ws.getCell(`${b.start}${rr}`);
-      c.value = makeLine(kind, blockWidth(b));
+      c.value = makeLine(kind, blockWidth(b), b.fill);
       c.font = { size: 10 };
       c.alignment = { horizontal: "center", vertical: "middle" };
       c.border = {

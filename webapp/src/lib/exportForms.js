@@ -10,28 +10,28 @@ import { buildTaRaPdf } from "@/lib/buildTaRaPdf";
 const TOR_TITLE = "แบบใบเบิกค่าตอบแทนงานจ้างเหมาผู้ช่วยสอน";
 
 // ---- single-form outputs (one section, or all rows on one form) ----
-export async function formWorkbook({ user, month, displayRows, payConfig }) {
+export async function formWorkbook({ user, month, displayRows, payConfig, signatories }) {
   const emp = user.employment_type;
   if (emp === "SCHOLARSHIP") return buildWorkTimeSheetWorkbook({ user, month, displayRows });
-  if (emp === "TA_RA") return buildTaRaWorkbook({ user, month, displayRows });
-  if (emp === "TOR") return buildTaRaWorkbook({ user, month, displayRows, title: TOR_TITLE });
+  if (emp === "TA_RA") return buildTaRaWorkbook({ user, month, displayRows, signatories });
+  if (emp === "TOR") return buildTaRaWorkbook({ user, month, displayRows, title: TOR_TITLE, signatories });
   return buildTimesheetWorkbook({ user, month, payConfig, displayRows });
 }
 
-export async function formPdf({ user, month, displayRows, payConfig }) {
+export async function formPdf({ user, month, displayRows, payConfig, signatories }) {
   const emp = user.employment_type;
   if (emp === "SCHOLARSHIP") return buildWorkTimeSheetPdf({ user, month, displayRows });
-  if (emp === "TA_RA") return buildTaRaPdf({ user, month, displayRows });
-  if (emp === "TOR") return buildTaRaPdf({ user, month, displayRows, title: TOR_TITLE });
+  if (emp === "TA_RA") return buildTaRaPdf({ user, month, displayRows, signatories });
+  if (emp === "TOR") return buildTaRaPdf({ user, month, displayRows, title: TOR_TITLE, signatories });
   return buildTimesheetPdf({ user, month, payConfig, displayRows });
 }
 
 // add one worksheet (for one section's rows) to an existing workbook
-function addSheet(wb, { user, month, displayRows, sheetName }) {
+function addSheet(wb, { user, month, displayRows, sheetName, signatories }) {
   const emp = user.employment_type;
   if (emp === "SCHOLARSHIP") return buildWorkTimeSheetWorkbook({ user, month, displayRows, wb, sheetName });
-  if (emp === "TOR") return buildTaRaWorkbook({ user, month, displayRows, title: TOR_TITLE, wb, sheetName });
-  return buildTaRaWorkbook({ user, month, displayRows, wb, sheetName });
+  if (emp === "TOR") return buildTaRaWorkbook({ user, month, displayRows, title: TOR_TITLE, wb, sheetName, signatories });
+  return buildTaRaWorkbook({ user, month, displayRows, wb, sheetName, signatories });
 }
 
 function groupBySection(displayRows) {
@@ -57,15 +57,15 @@ function sheetNameFor(rows, i, used) {
 }
 
 // ---- combined: one WORKSHEET per section ----
-export async function combinedWorkbook({ user, month, displayRows, payConfig }) {
+export async function combinedWorkbook({ user, month, displayRows, payConfig, signatories }) {
   const groups = groupBySection(displayRows);
-  if (groups.length <= 1) return formWorkbook({ user, month, displayRows, payConfig });
+  if (groups.length <= 1) return formWorkbook({ user, month, displayRows, payConfig, signatories });
   const wb = new ExcelJS.Workbook();
   wb.creator = "CAMT TA Timesheet";
   const used = new Set();
   let i = 0;
   for (const rows of groups) {
-    await addSheet(wb, { user, month, displayRows: rows, sheetName: sheetNameFor(rows, i, used) });
+    await addSheet(wb, { user, month, displayRows: rows, sheetName: sheetNameFor(rows, i, used), signatories });
     i += 1;
   }
   const buffer = await wb.xlsx.writeBuffer();
@@ -73,12 +73,12 @@ export async function combinedWorkbook({ user, month, displayRows, payConfig }) 
 }
 
 // ---- combined: one form (page) per section, merged into one PDF ----
-export async function combinedPdf({ user, month, displayRows, payConfig }) {
+export async function combinedPdf({ user, month, displayRows, payConfig, signatories }) {
   const groups = groupBySection(displayRows);
-  if (groups.length <= 1) return formPdf({ user, month, displayRows, payConfig });
+  if (groups.length <= 1) return formPdf({ user, month, displayRows, payConfig, signatories });
   const master = await PDFDocument.create();
   for (const rows of groups) {
-    const buf = await formPdf({ user, month, displayRows: rows, payConfig });
+    const buf = await formPdf({ user, month, displayRows: rows, payConfig, signatories });
     const src = await PDFDocument.load(buf);
     const pages = await master.copyPages(src, src.getPageIndices());
     pages.forEach((p) => master.addPage(p));

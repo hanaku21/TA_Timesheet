@@ -1,16 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import AnnouncementManager from "./AnnouncementManager";
 
 // ---- CSV sample templates (columns must match the import parser) ----
 const PEOPLE_COLS = [
-  "คำนำหน้า", "ชื่อ-นามสกุล", "สถานะการจ้าง", "รหัสนักศึกษา", "เบอร์โทร",
-  "อีเมล", "การรายงานตัว", "ธนาคาร", "เลขที่บัญชี",
+  "คำนำหน้า", "ชื่อ-นามสกุล", "สถานะการจ้าง", "การรายงานตัว", "รหัสนักศึกษา",
+  "เลขที่บัตรประชาชน", "เบอร์โทร", "อีเมล", "ที่อยู่ตามบัตรประชาชน", "ธนาคาร", "เลขที่บัญชี",
 ];
 const PEOPLE_ROWS = [
-  ["นาย", "สมชาย ใจดี", "TA/RA", "640610001", "0812345678", "somchai@cmu.ac.th", "รายงานตัวแล้ว", "ไทยพาณิชย์", "1234567890"],
-  ["นางสาว", "สมหญิง เก่งมาก", "ทุนป.ตรี", "640610002", "0898765432", "somying@cmu.ac.th", "", "กสิกรไทย", "0987654321"],
-  ["นาย", "อดิศร รับเหมา", "TOR (จ้างเหมา)", "", "0801112222", "adisorn@camt.info", "", "กรุงไทย", "5566778899"],
+  ["นาย", "สมชาย ใจดี", "TA/RA", "รายงานตัวแล้ว", "640610001", "1509901234567", "0812345678", "somchai@cmu.ac.th", "123 หมู่ 4 ต.สุเทพ อ.เมือง จ.เชียงใหม่", "ไทยพาณิชย์", "1234567890"],
+  ["นางสาว", "สมหญิง เก่งมาก", "ทุนป.ตรี", "", "640610002", "1101700987654", "0898765432", "somying@cmu.ac.th", "45/6 ถ.ห้วยแก้ว ต.ช้างเผือก อ.เมือง จ.เชียงใหม่", "กสิกรไทย", "0987654321"],
+  ["นาย", "อดิศร รับเหมา", "TOR (จ้างเหมา)", "", "", "1500700081368", "0801112222", "adisorn@camt.info", "37/9 ซ.4 ต.สุเทพ อ.เมืองเชียงใหม่ จ.เชียงใหม่", "กรุงไทย", "5566778899"],
 ];
 
 const EMS_COLS = [
@@ -83,6 +84,13 @@ export default function ImportManager() {
   const [resetMsg, setResetMsg] = useState(null);
   const [cfg, setCfg] = useState({ scholarship_rate: 50, scholarship_max_hours: 8 });
   const [cfgMsg, setCfgMsg] = useState(null);
+  // signature-footer names/positions for the reimbursement forms
+  const [sign, setSign] = useState({
+    enabled: false, head: { name: "", position: "" }, approver: { name: "", position: "" },
+    f07: { noticeDateGrad: "", noticeDateUg: "", noticeDateTor: "", preparer: "", certifier: "" },
+  });
+  const [signMsg, setSignMsg] = useState(null);
+  const [signSaving, setSignSaving] = useState(false);
   const [terms, setTerms] = useState([]);
   const [term, setTerm] = useState("");
   // TOR contract-period import
@@ -101,7 +109,30 @@ export default function ImportManager() {
       setTerms(ts);
       setTerm((ts.find((t) => t.is_active) || ts[0])?.code || "");
     });
+    fetch("/api/admin/signatories").then((r) => r.json()).then((d) => {
+      if (d && d.head) setSign({ enabled: !!d.enabled, head: d.head, approver: d.approver, f07: d.f07 || { noticeDateGrad: "", noticeDateUg: "", preparer: "", certifier: "" } });
+    });
   }, []);
+
+  async function saveSign(e) {
+    e.preventDefault();
+    setSignMsg(null);
+    setSignSaving(true);
+    try {
+      const res = await fetch("/api/admin/signatories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sign),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "บันทึกไม่สำเร็จ");
+      setSignMsg({ type: "ok", text: "บันทึกผู้ลงนามแล้ว" });
+    } catch (e2) {
+      setSignMsg({ type: "error", text: e2.message });
+    } finally {
+      setSignSaving(false);
+    }
+  }
 
   async function saveCfg(e) {
     e.preventDefault();
@@ -190,6 +221,9 @@ export default function ImportManager() {
 
   return (
     <div className="space-y-5">
+    {/* Announcement slideshow shown on the TA dashboard */}
+    <AnnouncementManager />
+
     {/* Scholarship pay config */}
     <form onSubmit={saveCfg} className="card">
       <h3 className="font-semibold text-slate-700">ตั้งค่าการคิดเงินทุน ป.ตรี (ใบเบิก)</h3>
@@ -212,6 +246,96 @@ export default function ImportManager() {
           {cfgMsg.text}
         </div>
       )}
+    </form>
+
+    {/* Signature footer config (TA/RA · จ้างเหมา forms) */}
+    <form onSubmit={saveSign} className="card">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-semibold text-slate-700">ผู้ลงนามในเอกสาร (ใบเบิก TA/RA · จ้างเหมา)</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            เติมชื่อ (ในวงเล็บ) และตำแหน่ง ให้ช่อง “หัวหน้าภาควิชาฯ” และ “ผู้อนุมัติ” ในใบเบิก
+            ใช้ทั้งฝั่งผู้ช่วยสอนและ admin — ปิดไว้ก่อนได้ (เดือน ส.ค. ยังไม่ใช้)
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={sign.enabled}
+          onClick={() => setSign((s) => ({ ...s, enabled: !s.enabled }))}
+          title={sign.enabled ? "เปิดใช้งาน — คลิกเพื่อปิด" : "ปิดอยู่ — คลิกเพื่อเปิด"}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sign.enabled ? "bg-emerald-500" : "bg-slate-300"}`}
+        >
+          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${sign.enabled ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+        </button>
+      </div>
+
+      <div className={`mt-3 grid gap-4 md:grid-cols-2 ${sign.enabled ? "" : "opacity-50"}`}>
+        <div className="rounded-lg border border-slate-200 p-3">
+          <div className="mb-2 text-sm font-semibold text-slate-700">หัวหน้าภาควิชาหรือตำแหน่งอื่นที่เทียบเท่า</div>
+          <label className="label">ชื่อ (แสดงในวงเล็บ)</label>
+          <input className="input" disabled={!sign.enabled} value={sign.head.name}
+            onChange={(e) => setSign((s) => ({ ...s, head: { ...s.head, name: e.target.value } }))}
+            placeholder="เช่น ผศ.ดร. สมชาย ใจดี" />
+          <label className="label mt-2">ตำแหน่ง</label>
+          <input className="input" disabled={!sign.enabled} value={sign.head.position}
+            onChange={(e) => setSign((s) => ({ ...s, head: { ...s.head, position: e.target.value } }))}
+            placeholder="เช่น หัวหน้าสำนักวิชา" />
+        </div>
+        <div className="rounded-lg border border-slate-200 p-3">
+          <div className="mb-2 text-sm font-semibold text-slate-700">ผู้อนุมัติ</div>
+          <label className="label">ชื่อ (แสดงในวงเล็บ)</label>
+          <input className="input" disabled={!sign.enabled} value={sign.approver.name}
+            onChange={(e) => setSign((s) => ({ ...s, approver: { ...s.approver, name: e.target.value } }))}
+            placeholder="เช่น รศ.ดร. สมหญิง เก่งมาก" />
+          <label className="label mt-2">ตำแหน่ง</label>
+          <input className="input" disabled={!sign.enabled} value={sign.approver.position}
+            onChange={(e) => setSign((s) => ({ ...s, approver: { ...s.approver, position: e.target.value } }))}
+            placeholder="เช่น คณบดี" />
+        </div>
+      </div>
+
+      {/* F-07 ใบสรุปเบิก (บัณฑิต / ป.ตรี) header + signatories */}
+      <div className="mt-4 rounded-lg border border-slate-200 p-3">
+        <div className="mb-1 text-sm font-semibold text-slate-700">ใบสรุปเบิก F-07 (จ้างเหมา TOR · บัณฑิต TA/RA · ทุน ป.ตรี)</div>
+        <p className="mb-2 text-xs text-slate-500">
+          ใช้ในไฟล์ "สรุปค่าใช้จ่าย แยกตามประเภทการจ้าง" — ข้อความ "เบิกเงินตามประกาศรายชื่อ… ลงวันที่" และชื่อผู้จัดทำ/ผู้รับรองท้ายฟอร์ม (ใช้ได้ตลอดไม่ขึ้นกับสวิตช์ด้านบน)
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <label className="label">ประกาศรายชื่อ บัณฑิตศึกษา ลงวันที่</label>
+            <input className="input" value={sign.f07?.noticeDateGrad || ""} placeholder="เช่น 19 มิถุนายน 2569"
+              onChange={(e) => setSign((s) => ({ ...s, f07: { ...s.f07, noticeDateGrad: e.target.value } }))} />
+          </div>
+          <div>
+            <label className="label">ประกาศรายชื่อ ปริญญาตรี ลงวันที่</label>
+            <input className="input" value={sign.f07?.noticeDateUg || ""} placeholder="เช่น 19 มิถุนายน 2569"
+              onChange={(e) => setSign((s) => ({ ...s, f07: { ...s.f07, noticeDateUg: e.target.value } }))} />
+          </div>
+          <div>
+            <label className="label">จ้างเหมา (TOR) — สัญญา ลงวันที่ (เว้นว่างได้)</label>
+            <input className="input" value={sign.f07?.noticeDateTor || ""} placeholder="เช่น 22 มิถุนายน 2569"
+              onChange={(e) => setSign((s) => ({ ...s, f07: { ...s.f07, noticeDateTor: e.target.value } }))} />
+          </div>
+          <div>
+            <label className="label">ผู้จัดทำ (ชื่อในวงเล็บ)</label>
+            <input className="input" value={sign.f07?.preparer || ""} placeholder="เช่น นางมาลีทิพย์ ปลัดคุณ"
+              onChange={(e) => setSign((s) => ({ ...s, f07: { ...s.f07, preparer: e.target.value } }))} />
+          </div>
+          <div>
+            <label className="label">ผู้รับรอง (ชื่อในวงเล็บ)</label>
+            <input className="input" value={sign.f07?.certifier || ""} placeholder="เช่น ผู้ช่วยศาสตราจารย์ ดร. ..."
+              onChange={(e) => setSign((s) => ({ ...s, f07: { ...s.f07, certifier: e.target.value } }))} />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <button className="btn-primary" disabled={signSaving}>{signSaving ? "กำลังบันทึก..." : "บันทึกผู้ลงนาม"}</button>
+        {signMsg && (
+          <span className={`text-sm ${signMsg.type === "ok" ? "text-emerald-700" : "text-red-600"}`}>{signMsg.text}</span>
+        )}
+      </div>
     </form>
 
     {/* Backup */}
@@ -248,7 +372,8 @@ export default function ImportManager() {
           <input type="file" accept=".csv" className="input"
             onChange={(e) => setPeople(e.target.files?.[0] || null)} />
           <p className="mt-1 text-xs text-slate-400">
-            เช่น <code>ผู้ช่วยสอน_2569-1.csv</code> · รหัสผ่าน = เบอร์โทร (ไม่มีเบอร์ = 0123456789)
+            เช่น <code>ผู้ช่วยสอน_2569-1.csv</code> · รหัสผ่าน = เบอร์โทร (ไม่มีเบอร์ = 0123456789) ·
+            คอลัมน์ <code>เลขที่บัตรประชาชน</code> และ <code>ที่อยู่ตามบัตรประชาชน</code> ใช้เติมในใบวางบิล/ใบเสร็จของจ้างเหมา
           </p>
           <div className="mt-1.5 flex flex-wrap gap-2">
             <button type="button" className="btn-edit"
@@ -292,7 +417,8 @@ export default function ImportManager() {
           {loading ? "กำลังนำเข้า..." : "นำเข้าข้อมูล"}
         </button>
         <p className="text-xs text-slate-400">
-          หมายเหตุ: การอัปเดต user เดิมจะไม่เปลี่ยนรหัสผ่านที่มีอยู่
+          หมายเหตุ: user ที่มีอยู่แล้วจะ <b>ไม่ถูกทับ</b> — ระบบเติมเฉพาะช่องที่ยังว่าง (คำนำหน้า, รหัส นศ., เบอร์โทร, ที่อยู่, เลขบัตร, ธนาคาร)
+          และไม่เปลี่ยนรหัสผ่าน · ยกเว้นข้อมูลตามเทอม (ประเภทการจ้าง, เลข TOR, สถานะรายงานตัว) ที่ใช้ค่าจากไฟล์ล่าสุด
         </p>
       </form>
 
@@ -303,7 +429,8 @@ export default function ImportManager() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <Stat label="user ใหม่" value={result.users_new} />
-              <Stat label="user อัปเดต" value={result.users_updated} />
+              <Stat label="user เดิม (อัปเดต)" value={result.users_updated} />
+              <Stat label="เติมข้อมูลที่ว่าง (คน)" value={result.users_filled} />
               <Stat label="ปิดใช้งาน (ไม่อยู่ในไฟล์)" value={result.users_deactivated} />
               <Stat label="วิชา" value={result.courses} />
               <Stat label="section" value={result.sections} />

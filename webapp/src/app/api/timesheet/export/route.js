@@ -5,6 +5,7 @@ import { computeDisplayRows } from "@/lib/buildTimesheetXlsx";
 import { formWorkbook, combinedWorkbook } from "@/lib/exportForms";
 import { getActiveTerm } from "@/lib/term";
 import { fetchFrozenRows, mergeFrozenRows } from "@/lib/frozenRows";
+import { readSignatories } from "@/lib/signatories";
 
 export const runtime = "nodejs";
 
@@ -96,10 +97,12 @@ export async function GET(req) {
     }
   }
 
+  const signatories = await readSignatories(supabase);
+
   // One section -> single form. All sections -> one worksheet per section.
   const buffer = chosenSec
-    ? await formWorkbook({ user, month, displayRows, payConfig })
-    : await combinedWorkbook({ user, month, displayRows, payConfig });
+    ? await formWorkbook({ user, month, displayRows, payConfig, signatories })
+    : await combinedWorkbook({ user, month, displayRows, payConfig, signatories });
 
   // filename: "ชื่อ-นามสกุล TA_รหัสวิชา_section_เดือน_ปี.xlsx"
   const [ynum, mnum] = month.split("-");

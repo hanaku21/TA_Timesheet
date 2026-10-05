@@ -59,7 +59,7 @@ export async function POST(req) {
   const SEM = term.code;
   const SEM_START = term.start_date || "2026-06-22";
   const SEM_END = term.end_date || "2026-11-03";
-  const report = { term: SEM, users_new: 0, users_updated: 0, users_deactivated: 0, courses: 0, sections: 0, assignments: 0, warnings: [] };
+  const report = { term: SEM, users_new: 0, users_updated: 0, users_filled: 0, users_deactivated: 0, courses: 0, sections: 0, assignments: 0, warnings: [] };
 
   const people = peopleFile ? parseCsv(await peopleFile.text()) : [];
   const ems = emsFile ? parseCsv(await emsFile.text()) : [];
@@ -135,6 +135,8 @@ export async function POST(req) {
         tor_number: tor || null,
         bank: clean(r["ธนาคาร"]) || null,
         account_no: clean(r["เลขที่บัญชี"]) || null,
+        address: clean(r["ที่อยู่ตามบัตรประชาชน"]) || clean(r["ที่อยู่"]) || null,
+        id_card: clean(r["เลขที่บัตรประชาชน"]) || clean(r["เลขบัตรประชาชน"]) || null,
         _password: pw,
       });
     }
@@ -143,20 +145,32 @@ export async function POST(req) {
     const emails = built.map((b) => b.email);
     const { data: existing } = await supabase
       .from("users")
-      .select("email")
+      .select("id, email, title, full_name, employment_type, report_status, student_id, phone, tor_number, bank, account_no, address, id_card")
       .in("email", emails);
-    const existSet = new Set((existing || []).map((e) => e.email));
+    const existByEmail = Object.fromEntries((existing || []).map((e) => [e.email, e]));
+
+    // Fields that follow THIS term's file (contract data) vs. profile fields that are
+    // only filled in when the system still has nothing (never overwrite admin edits).
+    const TERM_FIELDS = ["employment_type", "tor_number", "report_status"];
+    const FILL_IF_MISSING = ["title", "student_id", "phone", "bank", "account_no", "address", "id_card"];
+    const isBlank = (v) => v == null || String(v).trim() === "";
 
     const toInsert = [];
     for (const b of built) {
       const { _password, ...rest } = b;
-      if (existSet.has(b.email)) {
-        // update profile fields only + reactivate (they're in this term's file)
-        await supabase
-          .from("users")
-          .update({ ...rest, active: true })
-          .eq("email", b.email);
+      const cur = existByEmail[b.email];
+      if (cur) {
+        const upd = { active: true };
+        for (const k of TERM_FIELDS) {
+          if (rest[k] != null && rest[k] !== cur[k]) upd[k] = rest[k];
+        }
+        let filled = 0;
+        for (const k of FILL_IF_MISSING) {
+          if (isBlank(cur[k]) && !isBlank(rest[k])) { upd[k] = rest[k]; filled++; }
+        }
+        await supabase.from("users").update(upd).eq("id", cur.id);
         report.users_updated++;
+        if (filled) report.users_filled++;
       } else {
         const password_hash = await hashPassword(_password);
         toInsert.push({ ...rest, password_hash, role: "user", active: true });

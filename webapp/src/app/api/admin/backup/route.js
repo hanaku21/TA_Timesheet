@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const TABLES = [
   "terms", "curricula", "users", "courses", "sections",
   "assignments", "timesheet_entries", "blackout_periods",
-  "blackout_curricula", "settings",
+  "blackout_curricula", "settings", "submissions", "tor_periods", "announcements",
 ];
 
 // GET /api/admin/backup?format=json|xlsx
@@ -22,8 +22,8 @@ export async function GET(req) {
 
   const dump = {};
   for (const t of TABLES) {
-    const { data } = await supabase.from(t).select("*");
-    dump[t] = data || [];
+    const { data, error } = await supabase.from(t).select("*");
+    dump[t] = error ? [] : data || []; // optional tables (e.g. not yet migrated) come back empty
   }
 
   if (format === "json") {

@@ -7,6 +7,7 @@ import Modal from "@/components/Modal";
 const EMPTY = {
   id: null, title: "", full_name: "", email: "", phone: "",
   employment_type: "SCHOLARSHIP", student_id: "", tor_number: "", password: "",
+  address: "", id_card: "",
 };
 
 export default function UsersManager() {
@@ -229,6 +230,17 @@ export default function UsersManager() {
                   <input className="input" value={form.tor_number} onChange={set("tor_number")} />
                 </div>
               )}
+              <div className="sm:col-span-3 mt-1 border-t border-slate-100 pt-2 text-xs font-semibold text-slate-500">
+                ข้อมูลสำหรับใบวางบิล / ใบเสร็จรับเงิน (จ้างเหมา) — ใช้เติมในเอกสารอัตโนมัติ
+              </div>
+              <div className="sm:col-span-3">
+                <label className="label">ที่อยู่ (ตามบัตรประชาชน)</label>
+                <input className="input" value={form.address || ""} onChange={set("address")} placeholder="เช่น 1 ซ.12 ถ.ราชดำเนิน ต.ในเมือง อ.เมือง จ.กำแพงเพชร" />
+              </div>
+              <div className="sm:col-span-3">
+                <label className="label">เลขบัตรประชาชน / เลขประจำตัวผู้เสียภาษี</label>
+                <input className="input" value={form.id_card || ""} onChange={set("id_card")} />
+              </div>
               <div className="sm:col-span-2">
                 <label className="label">รหัสผ่าน</label>
                 <input className="input" type="text"

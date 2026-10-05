@@ -64,6 +64,29 @@ const T = {
   noCourses: { th: "ยังไม่มีวิชาที่ได้รับมอบหมาย", en: "No assigned courses yet" },
   loading: { th: "กำลังโหลด...", en: "Loading..." },
 
+  announceBtn: { th: "ประกาศ", en: "Announcements" },
+  announceBtnHint: { th: "เปิดดูประกาศอีกครั้ง", en: "Open the announcements again" },
+
+  // Budget summary (Overview top card)
+  budgetTitle: { th: "สรุปงบประมาณทั้งปีการศึกษา", en: "Budget summary (whole term)" },
+  budgetSub: { th: "ค่าใช้จ่ายคาดการณ์ของแต่ละวิชา เทียบกับยอดที่ลงเวลาแล้วทุกเดือนรวมกัน", en: "Expected cost per course vs. everything you have logged so far this term" },
+  budgetFull: { th: "งบเต็ม", en: "Budget" },
+  budgetUsed: { th: "ใช้ไปแล้ว", en: "Used" },
+  budgetThisMonth: { th: "เดือนนี้", en: "This month" },
+  budgetLeft: { th: "คงเหลือ", en: "Remaining" },
+  budgetOver: { th: "เกินงบ", en: "Over budget" },
+  budgetNone: { th: "ไม่กำหนดงบ", en: "No budget set" },
+  budgetTotal: { th: "รวมทุกวิชา", en: "All courses" },
+  budgetDaysLeft: { th: "ลงได้อีก ~{n} วัน", en: "~{n} more day(s)" },
+  budgetHoursLeft: { th: "ลงได้อีก ~{n} ชม.", en: "~{n} more hr(s)" },
+
+  torDocsTitle: { th: "เอกสารจ้างเหมา (ต่อเลข TOR)", en: "Contract documents (per TOR no.)" },
+  torDocsSub: { th: "ใบวางบิล / ใบแจ้งค่าใช้จ่าย และใบเสร็จรับเงิน — ยอดตามสัญญาจ้างทั้งฉบับ (ที่อยู่/เลขบัตรประชาชน ดึงจากข้อมูลผู้ใช้ ถ้าไม่ครบติดต่อผู้ดูแล)", en: "Billing note and receipt — contract total amount (address / ID card come from your profile; contact admin if missing)" },
+  torBill: { th: "ใบวางบิล", en: "Billing note" },
+  torReceipt: { th: "ใบเสร็จรับเงิน", en: "Receipt" },
+  logSectionTitle: { th: "การบันทึกลงเวลา", en: "Time logging" },
+  logSectionSub: { th: "เลือกเดือน → บันทึกเวลาแยกตามวิชา → ยืนยันนำส่ง แล้วดาวน์โหลดใบเบิก", en: "Pick a month → log time per course → confirm submission, then download the forms" },
+
   // Log page
   logTitle: { th: "บันทึกเวลาทำงาน", en: "Timesheet" },
   backOverview: { th: "← กลับหน้าภาพรวม", en: "← Back to Overview" },
