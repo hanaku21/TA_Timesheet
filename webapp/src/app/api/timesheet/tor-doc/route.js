@@ -4,12 +4,13 @@ import { getSession } from "@/lib/auth";
 import { getActiveTerm } from "@/lib/term";
 import { buildTorDocWorkbook, torDigits } from "@/lib/buildTorBillXlsx";
 import { buildTorDocPdf } from "@/lib/buildTorBillPdf";
+import { entryCost } from "@/lib/calc";
 
 export const runtime = "nodejs";
 
 // GET /api/timesheet/tor-doc?kind=bill|receipt&tor=CAMT/1920[&format=xlsx|pdf][&user_id=][&term=]
 // ใบวางบิล / ใบเสร็จรับเงิน for a จ้างเหมา (TOR) TA — one document per เลข TOR.
-// Amount = ยอดสั่งจ้างทั้งสัญญา (tor_periods.amount, else Σ expected_cost of that TOR's sections).
+// Amount = Σ of everything actually logged in the timesheet (whole term) for that TOR's sections.
 export async function GET(req) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -44,7 +45,7 @@ export async function GET(req) {
   // the TA's sections under this TOR (must be assigned to them this term)
   const { data: assigns } = await supabase
     .from("assignments")
-    .select("section:sections ( id, section, tor_number, expected_cost, curriculum:curricula ( code ), course:courses ( code, name ) )")
+    .select("section:sections ( id, section, tor_number, expected_cost, start_time, end_time, rate, curriculum:curricula ( code ), course:courses ( code, name ) )")
     .eq("user_id", targetUid)
     .eq("semester", term);
   const secs = (assigns || []).map((a) => a.section).filter((s) => s && s.tor_number === tor);
@@ -52,10 +53,17 @@ export async function GET(req) {
     return NextResponse.json({ error: "ไม่พบเลข TOR นี้ในรายวิชาที่ได้รับมอบหมาย" }, { status: 404 });
   }
 
-  const { data: tp } = await supabase
-    .from("tor_periods").select("amount").eq("tor_number", tor).eq("term", term).maybeSingle();
-  const sumExpected = secs.reduce((a, s) => a + Number(s.expected_cost || 0), 0);
-  const amount = tp?.amount != null && Number(tp.amount) > 0 ? Number(tp.amount) : sumExpected;
+  // amount = total of the TA's logged entries (whole term) in the sections under this TOR
+  const secById = Object.fromEntries(secs.map((s) => [s.id, s]));
+  const { data: entries } = await supabase
+    .from("timesheet_entries")
+    .select("section_id, hours")
+    .eq("user_id", targetUid)
+    .eq("semester", term)
+    .in("section_id", secs.map((s) => s.id));
+  const amount = Math.round(
+    (entries || []).reduce((a, e) => a + (secById[e.section_id] ? entryCost(secById[e.section_id], e) : 0), 0) * 100
+  ) / 100;
 
   const subjects = secs
     .map((s) => ({ code: s.course?.code || "", name: s.course?.name || "", section: s.section || "" }))

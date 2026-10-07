@@ -77,11 +77,12 @@ const T = {
   budgetOver: { th: "เกินงบ", en: "Over budget" },
   budgetNone: { th: "ไม่กำหนดงบ", en: "No budget set" },
   budgetTotal: { th: "รวมทุกวิชา", en: "All courses" },
+  budgetProgress: { th: "สัดส่วนที่ใช้", en: "Used" },
   budgetDaysLeft: { th: "ลงได้อีก ~{n} วัน", en: "~{n} more day(s)" },
   budgetHoursLeft: { th: "ลงได้อีก ~{n} ชม.", en: "~{n} more hr(s)" },
 
   torDocsTitle: { th: "เอกสารจ้างเหมา (ต่อเลข TOR)", en: "Contract documents (per TOR no.)" },
-  torDocsSub: { th: "ใบวางบิล / ใบแจ้งค่าใช้จ่าย และใบเสร็จรับเงิน — ยอดตามสัญญาจ้างทั้งฉบับ (ที่อยู่/เลขบัตรประชาชน ดึงจากข้อมูลผู้ใช้ ถ้าไม่ครบติดต่อผู้ดูแล)", en: "Billing note and receipt — contract total amount (address / ID card come from your profile; contact admin if missing)" },
+  torDocsSub: { th: "ใบวางบิล / ใบแจ้งค่าใช้จ่าย และใบเสร็จรับเงิน — ยอดเงินคิดจากเวลาที่ลงไว้จริงทั้งปีการศึกษา (ตรงกับช่อง \"ใช้ไปแล้ว\") · ที่อยู่/เลขบัตรประชาชน ดึงจากข้อมูลผู้ใช้ ถ้าไม่ครบติดต่อผู้ดูแล", en: "Billing note and receipt — amount = everything logged this term (the \"Used\" column) · address / ID card come from your profile; contact admin if missing" },
   torBill: { th: "ใบวางบิล", en: "Billing note" },
   torReceipt: { th: "ใบเสร็จรับเงิน", en: "Receipt" },
   logSectionTitle: { th: "การบันทึกลงเวลา", en: "Time logging" },
