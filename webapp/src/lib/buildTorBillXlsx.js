@@ -16,7 +16,7 @@ const f10 = (extra = {}) => ({ name: FONT, size: 10, ...extra });
 
 const COMPANY = {
   name: "วิทยาลัยศิลปะ สื่อ และเทคโนโลยี",
-  address: "239 ถ.ห้วยแก้ว ต.สุเทพ อ.เมือง จ.เชียงใหม่",
+  address: "239 ถ.ห้วยแก้ว ต.สุเทพ อ.เมือง จ.เชียงใหม่ 50200",
   phone: "053-920299",
   taxId: "0994000423179",
   branch: "R สำนักงานใหญ่",
@@ -58,7 +58,7 @@ export function docNumber(kind, termCode, tor) {
 }
 export const COMPANY_INFO = {
   name: "วิทยาลัยศิลปะ สื่อ และเทคโนโลยี",
-  address: "239 ถ.ห้วยแก้ว ต.สุเทพ อ.เมือง จ.เชียงใหม่",
+  address: "239 ถ.ห้วยแก้ว ต.สุเทพ อ.เมือง จ.เชียงใหม่ 50200",
   phone: "053-920299",
   taxId: "0994000423179",
   branch: "R สำนักงานใหญ่",
@@ -82,7 +82,7 @@ export async function buildTorDocWorkbook({ kind, user, tor, amount, subjects, t
     views: [{ showGridLines: false }],
   });
   ws.columns = [9, 10.1, 11.9, 9, 12.1, 9, 1.1, 10.9, 9].map((w) => ({ width: w }));
-  for (let r = 1; r <= 36; r++) ws.getRow(r).height = 24;
+  for (let r = 1; r <= 38; r++) ws.getRow(r).height = 24;
   ws.getRow(6).height = 10.5;
   ws.getRow(12).height = 12;
 
@@ -241,13 +241,20 @@ export async function buildTorDocWorkbook({ kind, user, tor, amount, subjects, t
 
   // ---- signature --------------------------------------------------------
   ws.mergeCells("E32:H32");
-  cell("E32", "ลงชื่อ .......................................................", { h: "center" });
+  cell("E32", isBill ? "ลงชื่อผู้วางบิล ............................................" : "ลงชื่อ .......................................................", { h: "center" });
   ws.mergeCells("E33:H33");
   cell("E33", `      (${fullName})`, { h: "center" });
   ws.mergeCells("E34:H34");
   cell("E34", "         วันที่ .............................................", { h: "left" });
+  if (isBill) {
+    // receiver of the billing note
+    ws.mergeCells("E36:H36");
+    cell("E36", "ลงชื่อผู้รับใบวางบิล.......................................", { h: "center" });
+    ws.mergeCells("E37:H37");
+    cell("E37", "(...................................................................)", { h: "center" });
+  }
 
-  ws.pageSetup.printArea = "A1:I36";
+  ws.pageSetup.printArea = isBill ? "A1:I38" : "A1:I36";
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }

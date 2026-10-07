@@ -137,10 +137,14 @@ export async function buildTorDocPdf({ kind, user, tor, amount, subjects, termCo
   // ---- paid stamp (receipt) ----
   if (!isBill) put("ได้รับชำระเรียบร้อยแล้ว", "E", "H", 29, { align: "center" });
 
-  // ---- signature rows 32–34 ----
-  put("ลงชื่อ .......................................................", "E", "H", 32, { align: "center" });
+  // ---- signature rows 32–34 (+ receiver rows 36–37 on the billing note) ----
+  put(isBill ? "ลงชื่อผู้วางบิล ............................................" : "ลงชื่อ .......................................................", "E", "H", 32, { align: "center" });
   put(`(${fullName})`, "E", "H", 33, { align: "center" });
   put("วันที่ .............................................", "E", "H", 34, { align: "center" });
+  if (isBill) {
+    put("ลงชื่อผู้รับใบวางบิล.......................................", "E", "H", 36, { align: "center" });
+    put("(...................................................................)", "E", "H", 37, { align: "center" });
+  }
 
   const bytes = await doc.save();
   return Buffer.from(bytes);
