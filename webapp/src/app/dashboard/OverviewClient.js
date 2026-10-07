@@ -187,6 +187,17 @@ export default function OverviewClient({ employmentType, name }) {
         const pctAll = budgetTotal.budget > 0 ? Math.min(100, (budgetTotal.used / budgetTotal.budget) * 100) : 0;
         const overAll = budgetTotal.remaining < -1e-6;
         const docUrl = (kind, fmt, tor) => `/api/timesheet/tor-doc?kind=${kind}&format=${fmt}&tor=${encodeURIComponent(tor)}`;
+        // TOR users: group rows by เลข TOR so the TOR / document cells span the group's rows
+        const ordered = isTOR
+          ? [...budgets].sort((a, b) => String(a.s.tor_number || "").localeCompare(String(b.s.tor_number || ""), undefined, { numeric: true }) || (a.s.course?.code || "").localeCompare(b.s.course?.code || ""))
+          : budgets;
+        const groupSize = {}; // index of first row in group -> rows in that group
+        const firstIdxOfTor = {};
+        ordered.forEach((b, idx) => {
+          const key = b.s.tor_number || `__none_${idx}`;
+          if (firstIdxOfTor[key] == null) { firstIdxOfTor[key] = idx; groupSize[idx] = 0; }
+          groupSize[firstIdxOfTor[key]] += 1;
+        });
         return (
           <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
             {/* header band */}
@@ -220,13 +231,14 @@ export default function OverviewClient({ employmentType, name }) {
               </div>
             </div>
 
-            {/* table */}
+            {/* table — one row per course/section; for จ้างเหมา the เลข TOR and document
+                cells span all rows of the same TOR (centred between the courses) */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
                     <th className="px-4 py-2.5">{t("colCourse")} / {t("colSection")}</th>
-                    {isTOR && <th className="px-3 py-2.5">{t("colTor")}</th>}
+                    {isTOR && <th className="px-3 py-2.5 text-center">{t("colTor")}</th>}
                     <th className="px-3 py-2.5 text-right">{t("budgetFull")}</th>
                     <th className="px-3 py-2.5 text-right">{t("budgetUsed")}</th>
                     <th className="px-3 py-2.5 text-right">{t("budgetThisMonth")}</th>
@@ -237,13 +249,27 @@ export default function OverviewClient({ employmentType, name }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {budgets.map(({ s, budget, used, thisMonth, remaining, moreDays, moreHours }) => {
+                  {ordered.map(({ s, budget, used, thisMonth, remaining, moreDays, moreHours }, idx) => {
                     const over = remaining != null && remaining < -1e-6;
                     const low = !over && budget > 0 && remaining / budget < 0.1;
                     const pct = budget > 0 ? Math.min(100, (used / budget) * 100) : 0;
                     const tor = s.tor_number;
+                    const span = groupSize[idx];           // set only on the first row of a TOR group
+                    const groupStart = span != null;
+                    const k = tor || `__none_${idx}`;
+                    const groupEnd = idx === firstIdxOfTor[k] + groupSize[firstIdxOfTor[k]] - 1;
+                    const docCell = (kind) => (
+                      <td rowSpan={span} className="border-l border-slate-100 px-3 py-3 text-center align-middle whitespace-nowrap">
+                        {tor ? (
+                          <div className="inline-flex gap-1">
+                            <a className="btn-edit" href={docUrl(kind, "xlsx", tor)}>⬇ .xlsx</a>
+                            <a className="btn-soft" href={docUrl(kind, "pdf", tor)}>⬇ .pdf</a>
+                          </div>
+                        ) : <span className="text-xs text-slate-400">—</span>}
+                      </td>
+                    );
                     return (
-                      <tr key={s.id} className="border-b border-slate-50 transition hover:bg-slate-50/70">
+                      <tr key={s.id} className={`transition hover:bg-slate-50/70 ${isTOR && groupEnd ? "border-b border-slate-200" : "border-b border-slate-50"}`}>
                         <td className="px-4 py-3">
                           <div className="font-semibold text-slate-800">
                             {s.course?.code} <span className="font-normal text-slate-500">{s.course?.name}</span>
@@ -258,7 +284,11 @@ export default function OverviewClient({ employmentType, name }) {
                             )}
                           </div>
                         </td>
-                        {isTOR && <td className="px-3 py-3 whitespace-nowrap text-slate-600">{tor || "—"}</td>}
+                        {isTOR && groupStart && (
+                          <td rowSpan={span} className="border-l border-r border-slate-100 bg-amber-50/50 px-3 py-3 text-center align-middle font-semibold text-amber-800 whitespace-nowrap">
+                            {tor || "—"}
+                          </td>
+                        )}
                         <td className="px-3 py-3 text-right tabular-nums text-slate-700">{budget == null ? <span className="text-slate-400">—</span> : thb(budget)}</td>
                         <td className="px-3 py-3 text-right tabular-nums font-medium text-brand">{thb(used)}</td>
                         <td className="px-3 py-3 text-right tabular-nums text-emerald-700">{thisMonth ? thb(thisMonth) : <span className="text-slate-300">0</span>}</td>
@@ -275,26 +305,8 @@ export default function OverviewClient({ employmentType, name }) {
                             </div>
                           ) : <span className="text-xs text-slate-400">{t("budgetNone")}</span>}
                         </td>
-                        {isTOR && (
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
-                            {tor ? (
-                              <div className="inline-flex gap-1">
-                                <a className="btn-edit" href={docUrl("bill", "xlsx", tor)}>.xlsx</a>
-                                <a className="btn-soft" href={docUrl("bill", "pdf", tor)}>.pdf</a>
-                              </div>
-                            ) : <span className="text-xs text-slate-400">—</span>}
-                          </td>
-                        )}
-                        {isTOR && (
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
-                            {tor ? (
-                              <div className="inline-flex gap-1">
-                                <a className="btn-edit" href={docUrl("receipt", "xlsx", tor)}>.xlsx</a>
-                                <a className="btn-soft" href={docUrl("receipt", "pdf", tor)}>.pdf</a>
-                              </div>
-                            ) : <span className="text-xs text-slate-400">—</span>}
-                          </td>
-                        )}
+                        {isTOR && groupStart && docCell("bill")}
+                        {isTOR && groupStart && docCell("receipt")}
                       </tr>
                     );
                   })}
