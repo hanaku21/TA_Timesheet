@@ -111,7 +111,7 @@ export default function UsersManager() {
       {ok && <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{ok}</div>}
 
       <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[820px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-brand-light text-left text-xs font-bold text-slate-700">
               <th className="px-3 py-2">ชื่อ-นามสกุล</th>

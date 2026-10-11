@@ -146,6 +146,8 @@ export function addF07Sheet(wb, { level, units, month, term, scholarshipRate = 5
     for (let k = 0; k < n; k++) {
       const row = ws.getRow(r);
       const course = b.courses[k];
+      // full box on every cell: exceljs keeps only the outer edges of a merged block
+      // (template: lrtb / lr-- / lr-b); the course column (D) is boxed per row anyway
       if (k === 0) {
         row.getCell(1).value = idx + 1;
         row.getCell(2).value = fullName;
@@ -185,11 +187,15 @@ export function addF07Sheet(wb, { level, units, month, term, scholarshipRate = 5
     r++;
   }
 
-  // ---- total row ----
+  // ---- total row (template: band across A–H with top/bottom lines, I boxed, double line under the sum) ----
   const total = round2(blocks.reduce((a, b) => a + b.hours * b.rate, 0));
   const tr = ws.getRow(r);
+  for (let i = 1; i <= 8; i++) {
+    const c = tr.getCell(i);
+    c.font = f14();
+    c.border = { top: thin, bottom: thin, ...(i === 1 ? { left: thin } : {}) };
+  }
   tr.getCell(8).value = "รวมเป็นเงิน";
-  tr.getCell(8).font = f14();
   tr.getCell(8).alignment = { horizontal: "right", vertical: "middle" };
   const sumCell = tr.getCell(9);
   sumCell.value = dataRowIdx.length
@@ -198,7 +204,7 @@ export function addF07Sheet(wb, { level, units, month, term, scholarshipRate = 5
   sumCell.font = f14();
   sumCell.numFmt = '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@_-';
   sumCell.alignment = { horizontal: "right", vertical: "middle" };
-  sumCell.border = box;
+  sumCell.border = { left: thin, right: thin, top: thin, bottom: { style: "double", color: { argb: "FF000000" } } };
   tr.height = 27;
   r++;
 

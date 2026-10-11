@@ -174,7 +174,7 @@ export default function OverviewClient({ employmentType, name }) {
         </div>
         <button
           type="button"
-          className="btn bg-red-50 text-sm text-red-700 ring-1 ring-red-200 hover:bg-red-100"
+          className="btn w-full bg-red-50 text-sm text-red-700 ring-1 ring-red-200 hover:bg-red-100 sm:w-auto"
           title={t("announceBtnHint")}
           onClick={() => window.dispatchEvent(new Event("ta:open-announcements"))}
         >
@@ -202,24 +202,24 @@ export default function OverviewClient({ employmentType, name }) {
           <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
             {/* header band */}
             <div className="bg-gradient-to-r from-brand to-violet-500 px-5 py-4 text-white">
-              <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
                 <div>
                   <div className="text-xs font-medium uppercase tracking-wide text-white/70">{t("budgetTotal")}</div>
                   <h3 className="text-lg font-bold">{t("budgetTitle")}</h3>
                   <p className="text-xs text-white/80">{t("budgetSub")}</p>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-right">
+                <div className="grid w-full grid-cols-3 gap-2 text-right sm:w-auto">
                   <div className="rounded-xl bg-white/15 px-3 py-2 backdrop-blur">
                     <div className="text-[11px] text-white/70">{t("budgetFull")}</div>
-                    <div className="text-base font-bold tabular-nums">{thb(budgetTotal.budget)}</div>
+                    <div className="text-sm font-bold tabular-nums sm:text-base">{thb(budgetTotal.budget)}</div>
                   </div>
                   <div className="rounded-xl bg-white/15 px-3 py-2 backdrop-blur">
                     <div className="text-[11px] text-white/70">{t("budgetUsed")}</div>
-                    <div className="text-base font-bold tabular-nums">{thb(budgetTotal.used)}</div>
+                    <div className="text-sm font-bold tabular-nums sm:text-base">{thb(budgetTotal.used)}</div>
                   </div>
                   <div className={`rounded-xl px-3 py-2 backdrop-blur ${overAll ? "bg-red-500/70" : "bg-white/15"}`}>
                     <div className="text-[11px] text-white/70">{t("budgetLeft")}</div>
-                    <div className="text-base font-bold tabular-nums">{thb(budgetTotal.remaining)}</div>
+                    <div className="text-sm font-bold tabular-nums sm:text-base">{thb(budgetTotal.remaining)}</div>
                   </div>
                 </div>
               </div>
@@ -234,7 +234,7 @@ export default function OverviewClient({ employmentType, name }) {
             {/* table — one row per course/section; for จ้างเหมา the เลข TOR and document
                 cells span all rows of the same TOR (centred between the courses) */}
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className={`w-full text-sm ${isTOR ? "min-w-[980px]" : "min-w-[720px]"}`}>
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
                     <th className="px-4 py-2.5">{t("colCourse")} / {t("colSection")}</th>
@@ -363,7 +363,7 @@ export default function OverviewClient({ employmentType, name }) {
         {loading ? (
           <Spinner label={t("loading")} />
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="bg-brand-light text-left text-xs font-bold text-slate-700">
                 <th className="px-3 py-2">{t("colCourse")}</th>

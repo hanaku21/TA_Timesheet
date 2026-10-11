@@ -22,9 +22,9 @@ export default function AdminClient() {
   const [tab, setTab] = useState("timesheets");
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap gap-2">
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
         {TABS.map(([id, label]) => (
-          <button key={id} className={tab === id ? "btn-primary" : "btn-ghost"} onClick={() => setTab(id)}>
+          <button key={id} className={`${tab === id ? "btn-primary" : "btn-ghost"} shrink-0 whitespace-nowrap`} onClick={() => setTab(id)}>
             {label}
           </button>
         ))}

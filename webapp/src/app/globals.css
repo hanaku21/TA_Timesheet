@@ -50,7 +50,7 @@ body {
   @apply btn-xs bg-sky-50 text-sky-700 ring-1 ring-sky-100 hover:bg-sky-500 hover:text-white;
 }
 .card {
-  @apply rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100;
+  @apply rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 sm:p-5;
 }
 .input {
   @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/30;

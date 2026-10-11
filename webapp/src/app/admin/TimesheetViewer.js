@@ -346,15 +346,22 @@ export default function TimesheetViewer() {
           hint={notFilled.length > 0 ? `ยังไม่กรอก ${notFilled.length} คน — คลิกเพื่อดู` : "กรอกครบทุกคน"}
           onClick={() => setShowNotFilled(true)}
         />
+        {/* Confirmation is measured against what was actually logged this month —
+            a section with no entries in the month cannot be confirmed, so it is not
+            counted as "pending". The assigned totals are shown as a hint only. */}
         <Stat
           label="ยืนยันครบ (คน)"
-          value={`${progress.peopleDone} / ${expectedUsers.length}`}
-          accent={expectedUsers.length > 0 && progress.peopleDone === expectedUsers.length ? "emerald" : undefined}
+          value={`${submitStats.peopleDone} / ${submitStats.people}`}
+          accent={submitStats.people > 0 && submitStats.peopleDone === submitStats.people ? "emerald" : undefined}
+          hint={submitStats.people > 0 && submitStats.peopleDone < submitStats.people
+            ? `ยังไม่ครบ ${submitStats.people - submitStats.peopleDone} คน (จากคนที่กรอกเดือนนี้)`
+            : "นับจากคนที่กรอกข้อมูลเดือนนี้"}
         />
         <Stat
           label="ยืนยันแล้ว (วิชา/ตอน)"
-          value={`${progress.confirmedUnits} / ${progress.totalUnits || submitStats.units}`}
-          accent={progress.totalUnits > 0 && progress.confirmedUnits === progress.totalUnits ? "emerald" : undefined}
+          value={`${submitStats.confirmed} / ${submitStats.units}`}
+          accent={submitStats.units > 0 && submitStats.confirmed === submitStats.units ? "emerald" : undefined}
+          hint={`มีข้อมูลเดือนนี้ ${submitStats.units} จาก ${progress.totalUnits} วิชา/ตอนที่มอบหมาย`}
         />
         <Stat label="รวมชั่วโมง" value={sumHours(rows)} />
         <Stat label="รวมค่าจ้าง (บาท)" value={thb(sumCost(rows))} accent="emerald" />
@@ -460,7 +467,7 @@ export default function TimesheetViewer() {
             })()}
 
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[900px] text-sm">
                 <thead>
                   <tr className="bg-brand-light text-left text-xs font-bold text-slate-700">
                     <th className="px-3 py-2">วิชา</th>
