@@ -3,6 +3,7 @@ import { getSupabase } from "@/lib/supabase";
 import { getSession } from "@/lib/auth";
 import { getActiveTerm } from "@/lib/term";
 import { entryCost } from "@/lib/calc";
+import { selectAll } from "@/lib/selectAll";
 
 // GET /api/admin/timesheets?month=YYYY-MM&curriculum=<id>&type=<emp>&term=<code>
 // Returns all timesheet entries for the month + term with user + section context.
@@ -25,21 +26,23 @@ export async function GET(req) {
 
   // Run the reads in parallel instead of sequentially.
   const [entriesRes, curriculaRes, termsRes, subsRes, assignsRes, cfgRes, termEntriesRes] = await Promise.all([
-    supabase
-      .from("timesheet_entries")
-      .select(
-        `id, work_date, remark, hours,
-         user:users ( id, title, full_name, employment_type, email, student_id, tor_number ),
-         section:sections (
-           id, section, teaching_type, teaching_days, curriculum_id, start_time, end_time, rate, tor_number,
-           course:courses ( code, name ),
-           curriculum:curricula ( id, code, name )
-         )`
-      )
-      .eq("semester", term)
-      .gte("work_date", monthStart)
-      .lte("work_date", monthEnd)
-      .order("work_date"),
+    // paged: a busy month can exceed PostgREST's 1,000-row cap
+    selectAll(() =>
+      supabase
+        .from("timesheet_entries")
+        .select(
+          `id, work_date, remark, hours,
+           user:users ( id, title, full_name, employment_type, email, student_id, tor_number ),
+           section:sections (
+             id, section, teaching_type, teaching_days, curriculum_id, start_time, end_time, rate, tor_number,
+             course:courses ( code, name ),
+             curriculum:curricula ( id, code, name )
+           )`
+        )
+        .eq("semester", term)
+        .gte("work_date", monthStart)
+        .lte("work_date", monthEnd)
+    , { orderBy: "work_date" }),
     supabase.from("curricula").select("*").order("id"),
     supabase.from("terms").select("code, name, is_active, start_date, end_date").order("code"),
     supabase.from("submissions").select("user_id, section_id").eq("term", term).eq("month", month),
@@ -55,10 +58,13 @@ export async function GET(req) {
       .eq("semester", term),
     supabase.from("settings").select("key, value").in("key", ["scholarship_rate", "scholarship_max_hours"]),
     // Every entry of the term (not just this month) -> budget used per section.
-    supabase
-      .from("timesheet_entries")
-      .select("section_id, work_date, hours, section:sections ( start_time, end_time, rate )")
-      .eq("semester", term),
+    // Paged: this is the query most likely to pass 1,000 rows (and silently lose data).
+    selectAll(() =>
+      supabase
+        .from("timesheet_entries")
+        .select("id, section_id, work_date, hours, section:sections ( start_time, end_time, rate )")
+        .eq("semester", term)
+    ),
   ]);
 
   if (entriesRes.error) return NextResponse.json({ error: entriesRes.error.message }, { status: 500 });
@@ -93,16 +99,27 @@ export async function GET(req) {
   const round2 = (n) => Math.round(n * 100) / 100;
 
   // ---- Budget per assigned section: expected_cost vs. used (whole term) + this month ----
-  const usedBySection = {};   // sid -> cost over the whole term
-  const monthBySection = {};  // sid -> cost in the selected month
+  const kv = Object.fromEntries((cfgRes.data || []).map((s) => [s.key, s.value]));
+  const RATE = Number(kv.scholarship_rate) || 50;
+  const roundHalf = (n) => Math.round(n * 2) / 2;
+  // ทุน ป.ตรี: "ยอดเบิกจริง" = pooled (money / RATE) rounded to 0.5 h, × RATE
+  const toClaim = (billedHours) => round2(roundHalf(billedHours) * RATE);
+
+  const usedBySection = {};   // sid -> real cost over the whole term
+  const monthBySection = {};  // sid -> real cost in the selected month
+  const billedBySection = {}; // sid -> pooled billed hours (scholarship conversion), whole term
+  const billedMonthBySection = {};
   const daysBySection = {};
   (termEntriesRes.data || []).forEach((e) => {
     if (!e.section) return;
     const c = entryCost(e.section, e);
+    const bh = round2(c / RATE);
     usedBySection[e.section_id] = round2((usedBySection[e.section_id] || 0) + c);
+    billedBySection[e.section_id] = round2((billedBySection[e.section_id] || 0) + bh);
     daysBySection[e.section_id] = (daysBySection[e.section_id] || 0) + 1;
     if (e.work_date >= monthStart && e.work_date <= monthEnd) {
       monthBySection[e.section_id] = round2((monthBySection[e.section_id] || 0) + c);
+      billedMonthBySection[e.section_id] = round2((billedMonthBySection[e.section_id] || 0) + bh);
     }
   });
   const seenSec = new Set();
@@ -114,7 +131,11 @@ export async function GET(req) {
     if (seenSec.has(sec.id)) return;
     seenSec.add(sec.id);
     const budget = sec.expected_cost == null ? null : Number(sec.expected_cost);
-    const used = usedBySection[sec.id] || 0;
+    const isSch = u.employment_type === "SCHOLARSHIP";
+    const usedReal = usedBySection[sec.id] || 0;
+    // ใช้ไป = ยอดเบิกจริง (ทุน ป.ตรี แปลงที่ RATE บาท/ชม. ปัด 0.5 ชม.; ประเภทอื่น = ชั่วโมงจริง × อัตรา)
+    const used = isSch ? toClaim(billedBySection[sec.id] || 0) : usedReal;
+    const monthUsed = isSch ? toClaim(billedMonthBySection[sec.id] || 0) : (monthBySection[sec.id] || 0);
     budgets.push({
       section_id: sec.id,
       course_code: sec.course?.code || "",
@@ -128,7 +149,8 @@ export async function GET(req) {
       employment_type: u.employment_type,
       budget,
       used,
-      month: monthBySection[sec.id] || 0,
+      used_real: usedReal,
+      month: monthUsed,
       days: daysBySection[sec.id] || 0,
       remaining: budget == null ? null : round2(budget - used),
     });
@@ -138,10 +160,6 @@ export async function GET(req) {
   // The reimbursement converts the real earned money to hours at the scholarship
   // rate (rounded to 0.5). Use the frozen snapshot when a section is confirmed;
   // otherwise compute the same total from the entries.
-  const kv = Object.fromEntries((cfgRes.data || []).map((s) => [s.key, s.value]));
-  const RATE = Number(kv.scholarship_rate) || 50;
-  const roundHalf = (n) => Math.round(n * 2) / 2;
-
   const frozenBy = {}; // "uid|sid" -> {hours, money} from the confirmed document
   (subsRes.data || []).forEach((s) => {
     if (Array.isArray(s.frozen_rows) && s.frozen_rows.length) {

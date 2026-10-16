@@ -82,12 +82,19 @@ export default function OverviewClient({ employmentType, name }) {
 
   // ---- whole-term budget per section (expected_cost vs. everything logged) ----
   const budgets = useMemo(() => {
+    // ทุน ป.ตรี: "ใช้ไปแล้ว" = ยอดเบิกจริง (แปลงเป็นชั่วโมงที่ scholarshipRate บาท/ชม. ปัดเป็น 0.5 ชม.)
+    const isSch = employmentType === "SCHOLARSHIP";
+    const RATE = Number(data?.scholarshipRate) || 50;
+    const r2 = (n) => Math.round(n * 100) / 100;
+    const sumClaim = (s, es) => {
+      if (!isSch) return r2(es.reduce((a, e) => a + entryCost(s, e), 0));
+      const billed = es.reduce((a, e) => r2(a + r2(entryCost(s, e) / RATE)), 0);
+      return r2((Math.round(billed * 2) / 2) * RATE);
+    };
     const list = sections.map((s) => {
       const all = entries.filter((e) => String(e.section_id) === String(s.id));
-      const used = Math.round(all.reduce((a, e) => a + entryCost(s, e), 0) * 100) / 100;
-      const thisMonth = Math.round(
-        all.filter((e) => e.work_date.slice(0, 7) === month).reduce((a, e) => a + entryCost(s, e), 0) * 100
-      ) / 100;
+      const used = sumClaim(s, all);
+      const thisMonth = sumClaim(s, all.filter((e) => e.work_date.slice(0, 7) === month));
       const budget = s.expected_cost == null ? null : Number(s.expected_cost);
       const remaining = budget == null ? null : Math.round((budget - used) * 100) / 100;
       const perDay = costPerDay(s);
@@ -98,7 +105,7 @@ export default function OverviewClient({ employmentType, name }) {
       return { s, budget, used, thisMonth, remaining, moreDays, moreHours, days: all.length };
     });
     return list.sort((a, b) => (a.s.course?.code || "").localeCompare(b.s.course?.code || ""));
-  }, [sections, entries, month]);
+  }, [sections, entries, month, employmentType, data?.scholarshipRate]);
   const budgetTotal = useMemo(() => {
     const t = { budget: 0, used: 0, thisMonth: 0, remaining: 0, noBudget: 0 };
     budgets.forEach((b) => {

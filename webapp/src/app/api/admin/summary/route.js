@@ -3,6 +3,7 @@ import { getSupabase } from "@/lib/supabase";
 import { getSession } from "@/lib/auth";
 import { getActiveTerm } from "@/lib/term";
 import { entryCost } from "@/lib/calc";
+import { selectAll } from "@/lib/selectAll";
 import { EMP_LABELS } from "@/lib/constants";
 import { buildCostSummaryWorkbook } from "@/lib/buildCostSummaryXlsx";
 import { readSignatories } from "@/lib/signatories";
@@ -106,20 +107,29 @@ export async function GET(req) {
   if (sectionIds.length) {
     const [secRes, termEntRes] = await Promise.all([
       supabase.from("sections").select("id, expected_cost").in("id", sectionIds),
-      supabase
-        .from("timesheet_entries")
-        .select("section_id, hours, section:sections ( start_time, end_time, rate )")
-        .eq("semester", term)
-        .in("section_id", sectionIds),
+      selectAll(() =>
+        supabase
+          .from("timesheet_entries")
+          .select("id, section_id, hours, section:sections ( start_time, end_time, rate )")
+          .eq("semester", term)
+          .in("section_id", sectionIds)
+      ),
     ]);
+    // sections belonging to ทุน ป.ตรี -> "ใช้ไป" is the claimable amount (converted), not the real cost
+    const schSections = new Set(
+      rows.filter((r) => r.user?.employment_type === "SCHOLARSHIP").map((r) => r.section?.id)
+    );
     const used = {};
+    const billed = {};
     (termEntRes.data || []).forEach((e) => {
       if (!e.section) return;
-      used[e.section_id] = round2((used[e.section_id] || 0) + entryCost(e.section, e));
+      const c = entryCost(e.section, e);
+      used[e.section_id] = round2((used[e.section_id] || 0) + c);
+      billed[e.section_id] = round2((billed[e.section_id] || 0) + round2(c / RATE));
     });
     (secRes.data || []).forEach((sec) => {
       const budget = sec.expected_cost == null ? null : Number(sec.expected_cost);
-      const u = used[sec.id] || 0;
+      const u = schSections.has(sec.id) ? round2(roundHalf(billed[sec.id] || 0) * RATE) : (used[sec.id] || 0);
       budgets[sec.id] = { budget, used: u, remaining: budget == null ? null : round2(budget - u) };
     });
   }

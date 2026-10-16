@@ -368,7 +368,7 @@ export default function TimesheetViewer() {
       </div>
 
       {/* Download: cost summary by employment type */}
-      <div className="card flex flex-wrap items-center justify-between gap-3">
+      <div className="card flex flex-col gap-3">
         <div>
           <h3 className="font-semibold text-slate-700">ดาวน์โหลดสรุปค่าใช้จ่าย แยกตามประเภทการจ้าง</h3>
           <p className="mt-0.5 text-sm text-slate-500">
@@ -378,9 +378,15 @@ export default function TimesheetViewer() {
             {" "}— sheet “สรุปรวม” (ทุกประเภท + แยกตามหลักสูตร) และแยก 1 sheet ต่อประเภท: “TOR (จ้างเหมา)” / “ทุน ป.ตรี” / “TA-RA” (สรุปของประเภทนั้น + รายคน-รายวิชา/ตอน)
           </p>
         </div>
-        <a className="btn-primary whitespace-nowrap" href={summaryUrl} download>
-          ⬇ ดาวน์โหลดสรุป (.xlsx)
-        </a>
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-start">
+          <a className="btn-primary whitespace-nowrap" href={summaryUrl} download>
+            ⬇ ดาวน์โหลดสรุป (.xlsx)
+          </a>
+          <a className="btn-ghost whitespace-nowrap text-sm" href={`/api/admin/summary-students?term=${encodeURIComponent(term || "")}`} download
+            title="สรุปยอดเบิกรายคน ทั้งปีการศึกษา — ชีต ป.ตรี และ บัณฑิตศึกษา คอลัมน์ต่อเดือน (เฉพาะที่ยืนยันนำส่งแล้ว)">
+            ⬇ สรุปยอดเบิกรายคน ทั้งเทอม (.xlsx)
+          </a>
+        </div>
       </div>
 
       {loading && <Spinner />}

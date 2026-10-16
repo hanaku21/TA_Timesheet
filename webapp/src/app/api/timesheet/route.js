@@ -14,7 +14,7 @@ export async function GET(req) {
   const term = await getActiveTerm(supabase);
 
   // Run the independent reads in parallel instead of sequentially.
-  const [assignsRes, entriesRes, blackoutsRes, subsRes, torRes] = await Promise.all([
+  const [assignsRes, entriesRes, blackoutsRes, subsRes, torRes, cfgRes] = await Promise.all([
     supabase
       .from("assignments")
       .select(
@@ -46,7 +46,9 @@ export async function GET(req) {
       .from("tor_periods")
       .select("tor_number, start_date, end_date")
       .eq("term", term.code),
+    supabase.from("settings").select("key, value").eq("key", "scholarship_rate"),
   ]);
+  const scholarshipRate = Number(cfgRes.data?.[0]?.value) || 50;
 
   // TOR contract window per tor_number → limits a section's loggable dates.
   const torByNumber = {};
@@ -81,6 +83,7 @@ export async function GET(req) {
     blackouts: blk,
     submissions: (subsRes.data || []).map((s) => ({ month: s.month, section_id: s.section_id })), // confirmed (frozen) section-months
     semester: { start: term.start_date, end: term.end_date, label: term.code },
+    scholarshipRate, // ทุน ป.ตรี: claimable amount = pooled hours at this rate (rounded 0.5 h)
   });
 }
 
