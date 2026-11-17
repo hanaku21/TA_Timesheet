@@ -3,6 +3,7 @@ import { getSupabase } from "@/lib/supabase";
 import { getSession } from "@/lib/auth";
 import { computeDisplayRows } from "@/lib/buildTimesheetXlsx";
 import { formPdf, combinedPdf } from "@/lib/exportForms";
+import { attachInstructors } from "@/lib/workTimeSheet";
 import { getActiveTerm } from "@/lib/term";
 import { fetchFrozenRows, mergeFrozenRows } from "@/lib/frozenRows";
 import { readSignatories } from "@/lib/signatories";
@@ -50,7 +51,7 @@ export async function GET(req) {
     .select(
       `id, work_date, remark, hours,
        section:sections (
-         id, section, teaching_type, start_time, end_time, rate, curriculum_id,
+         id, section, teaching_type, start_time, end_time, rate, curriculum_id, instructor,
          course:courses ( code, name ),
          curriculum:curricula ( code, name )
        )`
@@ -63,7 +64,8 @@ export async function GET(req) {
 
   const { data: blackouts } = await supabase
     .from("blackout_periods")
-    .select("start_date, end_date, blackout_curricula ( curriculum_id )");
+    .select("start_date, end_date, blackout_curricula ( curriculum_id )")
+    .eq("term", term);
   const blk = (blackouts || []).map((b) => ({
     start_date: b.start_date,
     end_date: b.end_date,
@@ -83,6 +85,7 @@ export async function GET(req) {
   let displayRows = computeDisplayRows({ user, rows: rows || [], month, blackouts: blk, payConfig });
   const frozen = await fetchFrozenRows(supabase, targetUid, term, month);
   displayRows = mergeFrozenRows(displayRows, frozen);
+  displayRows = attachInstructors(displayRows, rows); // instructor name for the signature line
   let chosenSec = null;
   if (sectionId) {
     displayRows = displayRows.filter((r) => String(r.section?.id) === String(sectionId));

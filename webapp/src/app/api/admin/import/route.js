@@ -53,7 +53,7 @@ export async function POST(req) {
   let term = active;
   if (chosenTerm && chosenTerm !== active.code) {
     const { data: tr } = await supabase.from("terms").select("*").eq("code", chosenTerm).maybeSingle();
-    if (!tr) return NextResponse.json({ error: `ไม่พบปีการศึกษา ${chosenTerm}` }, { status: 400 });
+    if (!tr) return NextResponse.json({ error: `ไม่พบภาคการศึกษา ${chosenTerm}` }, { status: 400 });
     term = tr;
   }
   const SEM = term.code;

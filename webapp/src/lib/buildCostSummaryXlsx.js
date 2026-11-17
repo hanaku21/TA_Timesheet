@@ -83,7 +83,7 @@ export function aggregateUnits(rows, converted = {}, confirmed = new Set(), budg
   return out;
 }
 
-function summarize(units) {
+function summarize(units, termBudgetByType = null) {
   const byType = {};
   for (const t of TYPE_ORDER) {
     byType[t] = { people: new Set(), units: 0, confirmed: 0, days: 0, hours: 0, cost: 0, convHours: 0, convMoney: 0, budget: 0, usedTerm: 0, remaining: 0 };
@@ -106,12 +106,19 @@ function summarize(units) {
       s.convMoney = round2(s.convMoney + u.convMoney);
     }
   }
+  // whole-term budget per type (every assigned section, not only this month's units) when provided
+  if (termBudgetByType) {
+    Object.keys(byType).forEach((t) => {
+      const b = termBudgetByType[t] || { budget: 0, used: 0, remaining: 0 };
+      byType[t].budget = b.budget; byType[t].usedTerm = b.used; byType[t].remaining = b.remaining;
+    });
+  }
   return byType;
 }
 
-export async function buildCostSummaryWorkbook({ rows, converted, confirmed, budgets, term, month, scholarshipRate = 50, filters = {}, f07 = {} }) {
+export async function buildCostSummaryWorkbook({ rows, converted, confirmed, budgets, termBudgetByType = null, term, month, scholarshipRate = 50, filters = {}, f07 = {} }) {
   const units = aggregateUnits(rows, converted || {}, confirmed || new Set(), budgets || {});
-  const byType = summarize(units);
+  const byType = summarize(units, termBudgetByType);
   const [yy, mm] = month.split("-").map(Number);
   const monthLabel = `${TH_MONTHS[mm - 1]} ${yy + 543}`;
   const now = new Date();
@@ -205,7 +212,7 @@ export async function buildCostSummaryWorkbook({ rows, converted, confirmed, bud
   ws.getCell(`A${r}`).value =
     `หมายเหตุ: รวมเฉพาะวิชา/ตอนที่กด "ยืนยันนำส่ง" ของเดือนนี้แล้วเท่านั้น ·  "ยอดเงินตามอัตราจริง" = ชั่วโมง × อัตราค่าจ้าง/ชม. ของ section · ` +
     `สำหรับทุน ป.ตรี ยอดที่เบิกจริงคือ "ยอดเบิกทุน ป.ตรี" (แปลงเป็นชั่วโมงที่ ${scholarshipRate} บาท/ชม. ปัดเป็น 0.5 ชม.) · ` +
-    `"งบเต็ม / ใช้ไปทั้งเทอม / งบคงเหลือ" คิดจากค่าใช้จ่ายคาดการณ์ของ section เทียบกับยอดที่ลงเวลาแล้วทั้งปีการศึกษา (ไม่ใช่เฉพาะเดือนนี้)`;
+    `"งบเต็ม / ใช้ไปทั้งเทอม / งบคงเหลือ" คิดจากทุก section ที่มอบหมายให้ผู้ช่วยสอนประเภทนั้นทั้งปีการศึกษา (ไม่ใช่เฉพาะวิชา/ตอนที่ยืนยันเดือนนี้) เทียบกับยอดที่ลงเวลาแล้วทุกเดือน; ทุน ป.ตรี ใช้ยอดเบิกจริงหลังแปลง`;
   ws.getCell(`A${r}`).font = { size: 10, italic: true, color: { argb: "FF6B7280" } };
   ws.getCell(`A${r}`).alignment = { wrapText: true };
   ws.getRow(r).height = 30;

@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { TH_MONTHS } from "@/lib/constants";
 import { bahtText } from "@/lib/bahtText";
+import { singleInstructor } from "@/lib/workTimeSheet";
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const num = (n) =>
@@ -197,12 +198,29 @@ export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: e
   // When enabled, the head-of-department and approver blocks are pre-filled
   // with a name (inside the parentheses) and a position.
   const sig = signatories && signatories.enabled ? signatories : null;
+  const instructor = singleInstructor(displayRows);
   const blocks = [
-    { start: "A", end: "A", label: "ผู้จัดทำ/ผู้ตรวจสอบ" },
+    // ผู้จัดทำ/ผู้ตรวจสอบ = the course instructor (only when there is exactly one)
+    { start: "A", end: "A", label: "ผู้จัดทำ/ผู้ตรวจสอบ", fill: { name: instructor || null, position: "อาจารย์" } },
     { start: "B", end: "D", label: "หัวหน้าภาควิชาหรือตำแหน่งอื่นที่เทียบเท่า", fill: sig?.head },
     { start: "E", end: "F", label: "ผู้อนุมัติ", fill: sig?.approver },
     { start: "G", end: "H", label: "ผู้จ่ายเงิน" },
   ];
+  // A block whose name / position is too long is WIDENED instead of shrinking its text:
+  // "ผู้อนุมัติ" (E–F) takes column D from the head-of-department block (B–D -> B–C) when its
+  // text needs it and the head block can spare it. Widths in Excel column units; a Thai
+  // letter at size 10 is ~0.85 unit, combining vowels / tone marks take none.
+  const visLen = (t) => [...String(t || "")].filter((ch) => !/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/.test(ch)).length;
+  const needUnits = (b) => Math.max(
+    b.fill?.name ? visLen(`(${b.fill.name})`) : 0,
+    b.fill?.position ? visLen(`ตำแหน่ง ${b.fill.position}`) : 0
+  ) * 0.85 + 1;
+  {
+    const head = blocks[1], appr = blocks[2];
+    const W_EF = 13 + 15, W_BC = 17 + 13; // must match ws.columns
+    if (needUnits(appr) > W_EF && needUnits(head) <= W_BC) { head.end = "C"; appr.start = "D"; }
+  }
+  const fitsBlock = (b, w) => needUnits(b) <= w;
   const headRow = r;
   const mergeIf = (a, b2) => { if (a !== b2) ws.mergeCells(`${a}:${b2}`); };
 
@@ -214,7 +232,8 @@ export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: e
     c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     c.border = allBorder;
   });
-  ws.getRow(headRow).height = 22;
+  // the head-of-department label wraps onto two lines once that block gave up column D
+  ws.getRow(headRow).height = blocks[1].end === "C" ? 32 : 22;
 
   // Footer lines. The dotted lines are grown to (approximately) fill the width
   // of each block's merged cell so "ลงชื่อ ....." spans the whole column.
@@ -225,8 +244,23 @@ export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: e
   const dotsFor = (units) => ".".repeat(Math.max(4, Math.round(units * DPU)));
 
   const makeLine = (kind, w, fill) => {
-    if (kind === "paren") return fill?.name ? `(${fill.name})` : "(" + dotsFor(w - 2) + ")";
-    if (kind === "role" && fill?.position) return `ตำแหน่ง ${fill.position}`;
+    if (kind === "paren") {
+      const total = dotsFor(w - 2).length; // dots of an empty "(......)" for this block
+      if (!fill?.name) return "(" + ".".repeat(total) + ")";
+      // a name keeps the dotted line: "(.....name.....)" filling the block like the empty one.
+      // A Thai/Latin letter is about 2 dots wide; combining vowels/tone marks take no width.
+      const visible = [...fill.name].filter((ch) => !/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/.test(ch)).length;
+      const side = Math.floor((total - Math.ceil(visible * 2.1)) / 2);
+      return side >= 2 ? `(${".".repeat(side)}${fill.name}${".".repeat(side)})` : `(${fill.name})`;
+    }
+    if (kind === "role" && fill?.position) {
+      // keep the dotted line around the position: "ตำแหน่ง .....อาจารย์....." as wide as an empty one
+      const pre = "ตำแหน่ง ";
+      const total = dotsFor(w - pre.length).length;
+      const visible = [...fill.position].filter((ch) => !/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/.test(ch)).length;
+      const side = Math.floor((total - Math.ceil(visible * 2.1)) / 2);
+      return side >= 2 ? `${pre}${".".repeat(side)}${fill.position}${".".repeat(side)}` : `${pre}${fill.position}`;
+    }
     const prefix = kind === "sign" ? "ลงชื่อ " : kind === "role" ? "ตำแหน่ง " : "วันที่ ";
     return prefix + dotsFor(w - prefix.length);
   };
@@ -239,7 +273,18 @@ export async function buildTaRaWorkbook({ user, month, displayRows, title, wb: e
       const c = ws.getCell(`${b.start}${rr}`);
       c.value = makeLine(kind, blockWidth(b), b.fill);
       c.font = { size: 10 };
-      c.alignment = { horizontal: "center", vertical: "middle" };
+      // text that fits its (possibly widened) block keeps its size; shrinking is only the
+      // last resort for a line no block could be made wide enough for
+      const filled = (kind === "paren" && b.fill?.name) || (kind === "role" && b.fill?.position);
+      c.alignment = { horizontal: "center", vertical: "middle", shrinkToFit: filled ? !fitsBlock(b, blockWidth(b)) : true };
+      // a long instructor name: step the font down so "(name)" stays inside the block
+      if (kind === "paren" && b.fill?.name && !String(c.value).startsWith("(.") && !fitsBlock(b, blockWidth(b))) {
+        const visible = [...`(${b.fill.name})`].filter((ch) => !/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/.test(ch)).length;
+        const room = blockWidth(b) * 1.2; // approx. Thai characters that fit at size 10 (shrinkToFit covers the rest)
+        const size = visible <= room ? 10 : Math.max(6, Math.floor((10 * room) / visible * 2) / 2);
+        c.font = { size };
+        c.alignment = { horizontal: "center", vertical: "middle", shrinkToFit: true };
+      }
       c.border = {
         left: thin,
         right: thin,

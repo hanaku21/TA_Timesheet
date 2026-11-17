@@ -12,7 +12,7 @@ import SectionsManager from "./SectionsManager";
 const TABS = [
   ["timesheets", "ภาพรวม Timesheet"],
   ["blackouts", "ช่วงห้ามลงเวลา"],
-  ["terms", "ปีการศึกษา"],
+  ["terms", "ภาคการศึกษา"],
   ["users", "ผู้ใช้"],
   ["sections", "วิชา/Section"],
   ["import", "นำเข้า/ลบ/สำรองข้อมูล"],

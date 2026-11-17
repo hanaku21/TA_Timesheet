@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EMP_LABELS, EMP_BADGE, TH_MONTHS } from "@/lib/constants";
-import { thb, entryHours as calcHours, entryCost as calcCost } from "@/lib/calc";
+import { thb, entryHours as calcHours, entryCost as calcCost, hoursPerDay, toRate, isModule } from "@/lib/calc";
 import Spinner from "@/components/Spinner";
 import Modal from "@/components/Modal";
 
@@ -24,6 +24,10 @@ const ymd = (d) =>
 
 function entryHours(r) {
   return r.section ? calcHours(r.section, r) : 0;
+}
+// hours a day of this section is worth by its timetable (0 for module sections)
+function schedHours(section) {
+  return section && !isModule(section) ? hoursPerDay(section.start_time, section.end_time) : 0;
 }
 function entryCost(r) {
   return r.section ? calcCost(r.section, r) : 0;
@@ -148,21 +152,89 @@ export default function TimesheetViewer() {
     return `/api/admin/summary?${qs}`;
   })();
 
-  const [calFor, setCalFor] = useState(null); // { name, section, dates: {date: hours} }
-  function openCalendar(userObj, section, ents) {
-    const map = {};
-    ents
-      .filter((e) => String(e.section?.id) === String(section?.id))
-      .forEach((e) => { map[e.work_date] = entryHours(e); });
-    setCalFor({ name: `${userObj?.title || ""} ${userObj?.full_name}`.trim(), section, dates: map });
-  }
-
   const confirmedSet = new Set(data.confirmed || []); // "user|section"
   const isConfirmed = (uid, sid) => confirmedSet.has(`${uid}|${sid}`);
+  const schRate = data.scholarshipRate || 50;
+
+  // ---- calendar popup (view + admin edit of a single day's hours) ----
+  const [calFor, setCalFor] = useState(null); // { uid, name, section, emp }
+  const [selDay, setSelDay] = useState(null);  // "YYYY-MM-DD"
+  const [hoursInput, setHoursInput] = useState("");
+  const [calBusy, setCalBusy] = useState(false);
+  function openCalendar(userObj, section) {
+    setSelDay(null);
+    setHoursInput("");
+    setCalFor({ uid: userObj?.id, name: `${userObj?.title || ""} ${userObj?.full_name}`.trim(), section, emp: userObj?.employment_type });
+  }
+  // entries of the open calendar, always derived from the latest loaded rows
+  const calDates = useMemo(() => {
+    if (!calFor) return {};
+    const map = {};
+    (data.rows || [])
+      .filter((e) => String(e.user?.id) === String(calFor.uid) && String(e.section?.id) === String(calFor.section?.id))
+      .forEach((e) => { map[e.work_date] = { id: e.id, hours: entryHours(e), raw: e.hours }; });
+    return map;
+  }, [calFor, data.rows]);
+  const calSchedHours = calFor ? schedHours(calFor.section) : 0;
+  const calRate = calFor ? toRate(calFor.section?.rate) : 0;
+  const calConfirmed = calFor ? confirmedSet.has(`${calFor.uid}|${calFor.section?.id}`) : false;
+  function pickDay(d) {
+    const key = ymd(d);
+    setSelDay(key);
+    const cur = calDates[key];
+    setHoursInput(cur ? String(cur.hours) : String(calSchedHours || ""));
+  }
+  // what the month would look like after the pending edit (ทุน ป.ตรี: converted too)
+  const calPreview = useMemo(() => {
+    if (!calFor) return null;
+    const h = Number(hoursInput);
+    const list = Object.entries(calDates).map(([d, v]) => ({ d, hours: v.hours }));
+    const cur = { days: list.length, hours: list.reduce((a, x) => a + x.hours, 0) };
+    let next = list.filter((x) => x.d !== selDay);
+    if (selDay && Number.isFinite(h) && h > 0) next = [...next, { d: selDay, hours: h }];
+    const money = (arr) => Math.round(arr.reduce((a, x) => a + Math.round(x.hours * calRate * 100) / 100, 0) * 100) / 100;
+    const conv = (arr) => {
+      const billed = arr.reduce((a, x) => Math.round((a + Math.round((Math.round(x.hours * calRate * 100) / 100) / schRate * 100) / 100) * 100) / 100, 0);
+      const hh = Math.round(billed * 2) / 2;
+      return { hours: hh, money: Math.round(hh * schRate * 100) / 100 };
+    };
+    return {
+      cur: { ...cur, hours: Math.round(cur.hours * 100) / 100, money: money(list), conv: conv(list) },
+      next: { days: next.length, hours: Math.round(next.reduce((a, x) => a + x.hours, 0) * 100) / 100, money: money(next), conv: conv(next) },
+    };
+  }, [calFor, calDates, selDay, hoursInput, calRate, schRate]);
+  async function saveDay(mode) {
+    if (!calFor || !selDay) return;
+    const cur = calDates[selDay];
+    const h = Number(hoursInput);
+    let res;
+    setCalBusy(true);
+    try {
+      if (mode === "delete") {
+        if (!cur) return;
+        if (!confirm(`ลบวันที่ ${selDay} ของ ${calFor.name}?`)) return;
+        res = await fetch(`/api/admin/entry?id=${cur.id}`, { method: "DELETE" });
+      } else if (mode === "reset") {
+        if (!cur) return;
+        res = await fetch("/api/admin/entry", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: cur.id, hours: null }) });
+      } else {
+        if (!Number.isFinite(h) || h <= 0) { alert("กรุณากรอกจำนวนชั่วโมงมากกว่า 0"); return; }
+        if (cur) {
+          res = await fetch("/api/admin/entry", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: cur.id, hours: h }) });
+        } else {
+          res = await fetch("/api/admin/entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: calFor.uid, section_id: calFor.section?.id, work_date: selDay, hours: h }) });
+        }
+      }
+      if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || "บันทึกไม่สำเร็จ"); return; }
+      await load();
+      if (mode === "delete") setSelDay(null);
+    } finally {
+      setCalBusy(false);
+    }
+  }
 
   // ทุน ป.ตรี: converted hours + claimable amount (50฿/hr) per user|section
   const conv = data.converted || {};
-  const schRate = data.scholarshipRate || 50;
   const convOf = (uid, sid) => conv[`${uid}|${sid}`] || null;
 
   // Who is expected to fill this month (respecting the curriculum + type filters)
@@ -302,7 +374,7 @@ export default function TimesheetViewer() {
           <button className="btn-ghost" disabled={!canNext} onClick={() => shiftMonth(1)}>→</button>
         </div>
         <div>
-          <label className="label">ปีการศึกษา</label>
+          <label className="label">ภาคการศึกษา</label>
           <select className="input" value={term} onChange={(e) => setTerm(e.target.value)}>
             {(data.terms || []).map((t) => (
               <option key={t.code} value={t.code}>{t.code}{t.is_active ? " (ใช้งาน)" : ""}</option>
@@ -367,27 +439,52 @@ export default function TimesheetViewer() {
         <Stat label="รวมค่าจ้าง (บาท)" value={thb(sumCost(rows))} accent="emerald" />
       </div>
 
-      {/* Download: cost summary by employment type */}
-      <div className="card flex flex-col gap-3">
-        <div>
-          <h3 className="font-semibold text-slate-700">ดาวน์โหลดสรุปค่าใช้จ่าย แยกตามประเภทการจ้าง</h3>
-          <p className="mt-0.5 text-sm text-slate-500">
-            ไฟล์ .xlsx <b>เฉพาะรายการที่กดยืนยันนำส่งแล้ว</b> ของเดือน {TH_MONTHS[mm - 1]} {yy + 543} (ปีการศึกษา {term || "—"})
-            {curriculum && ` · หลักสูตร ${(data.curricula || []).find((c) => String(c.id) === String(curriculum))?.code || ""}`}
-            {type && ` · ${EMP_LABELS[type]}`}
-            {" "}— sheet “สรุปรวม” (ทุกประเภท + แยกตามหลักสูตร) และแยก 1 sheet ต่อประเภท: “TOR (จ้างเหมา)” / “ทุน ป.ตรี” / “TA-RA” (สรุปของประเภทนั้น + รายคน-รายวิชา/ตอน)
-          </p>
-        </div>
-        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-start">
-          <a className="btn-primary whitespace-nowrap" href={summaryUrl} download>
-            ⬇ ดาวน์โหลดสรุป (.xlsx)
+      {/* Downloads: monthly (follows the filters) vs. whole-term (per person) */}
+      {(() => {
+        const termQ = `term=${encodeURIComponent(term || "")}`;
+        const curLabel = curriculum ? (data.curricula || []).find((c) => String(c.id) === String(curriculum))?.code || "" : "";
+        const DL = ({ href, title, desc, primary }) => (
+          <a href={href} download className={`group flex items-start gap-3 rounded-xl px-3 py-2.5 ring-1 transition ${primary ? "bg-brand/5 ring-brand/30 hover:bg-brand/10" : "bg-white ring-slate-200 hover:bg-slate-50"}`}>
+            <span className={`mt-0.5 text-lg leading-none ${primary ? "text-brand" : "text-slate-400 group-hover:text-brand"}`}>⬇</span>
+            <span className="min-w-0">
+              <span className={`block text-sm font-semibold ${primary ? "text-brand" : "text-slate-700"}`}>{title} <span className="font-normal text-slate-400">.xlsx</span></span>
+              <span className="block text-xs text-slate-500">{desc}</span>
+            </span>
           </a>
-          <a className="btn-ghost whitespace-nowrap text-sm" href={`/api/admin/summary-students?term=${encodeURIComponent(term || "")}`} download
-            title="สรุปยอดเบิกรายคน ทั้งปีการศึกษา — ชีต ป.ตรี และ บัณฑิตศึกษา คอลัมน์ต่อเดือน (เฉพาะที่ยืนยันนำส่งแล้ว)">
-            ⬇ สรุปยอดเบิกรายคน ทั้งเทอม (.xlsx)
-          </a>
-        </div>
-      </div>
+        );
+        return (
+          <div className="card">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="font-semibold text-slate-700">ดาวน์โหลดสรุป</h3>
+              <span className="text-xs text-slate-400">ทุกไฟล์นับเฉพาะวิชา/ตอนที่กด "ยืนยันนำส่ง" แล้ว ยกเว้นที่ระบุไว้</span>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* ---- monthly ---- */}
+              <div className="rounded-2xl bg-slate-50 p-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  รายเดือน · {TH_MONTHS[mm - 1]} {yy + 543}
+                  {curLabel && <span className="ml-1 normal-case tracking-normal text-slate-400">· หลักสูตร {curLabel}</span>}
+                  {type && <span className="ml-1 normal-case tracking-normal text-slate-400">· {EMP_LABELS[type]}</span>}
+                </div>
+                <DL primary href={summaryUrl} title="สรุปค่าใช้จ่าย + แบบ F-07"
+                  desc="ชีต “สรุปรวม” (แยกประเภทการจ้าง + หลักสูตร, งบทั้งเทอม) และแบบ F-07 หลักฐานการจ่าย 1 ชีตต่อประเภท: จ้างเหมา (แยก TOR) / บัณฑิต (TA-RA) / ป.ตรี (รายคน-รายวิชา/ตอน) — ตามเดือนและตัวกรองที่เลือกอยู่" />
+              </div>
+              {/* ---- whole term ---- */}
+              <div className="rounded-2xl bg-slate-50 p-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">ทั้งภาคการศึกษา {term || ""} · รายคน</div>
+                <div className="grid gap-2">
+                  <DL href={`/api/admin/summary-students?${termQ}`} title="ยอดเบิกรายคน แยกเดือน"
+                    desc="3 ชีต: ป.ตรี / บัณฑิตศึกษา / จ้างเหมา (TOR) — 1 แถวต่อคน คอลัมน์ต่อเดือน + จำนวนเงินรวม" />
+                  <DL href={`/api/admin/summary-grad?${termQ}`} title="รวมทั้งเทอมรายคน ชม. / ครั้ง / เงิน"
+                    desc="2 ชีต: ป.ตรี (ชม.เบิกได้ + ยอดเบิก) / บัณฑิตศึกษา (ชม.จริง) — ทุกเดือนรวมเป็นตัวเลขเดียวต่อคน" />
+                  <DL href={`/api/admin/summary-ug-detail?${termQ}`} title="ป.ตรี รายวิชา-รายเดือน (ละเอียด)"
+                    desc="1 แถวต่อ คน × วิชา/ตอน × เดือน: จำนวนครั้ง, วันในเอกสาร, ชม.จริง, ชม.เบิกได้, เงินจริง, ยอดเบิก, งบวิชา — รวมรายการที่ยังไม่ยืนยันด้วย (มีคอลัมน์สถานะ)" />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {loading && <Spinner />}
       {!loading && byUser.length === 0 && (
@@ -437,7 +534,7 @@ export default function TimesheetViewer() {
               return (
                 <div className="mb-3 rounded-xl bg-slate-50 px-3 py-2">
                   <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                    <span className="font-semibold">งบรายวิชา (ทั้งปีการศึกษา {term})</span>
+                    <span className="font-semibold">งบรายวิชา (ทั้งภาคการศึกษา {term})</span>
                     <span>· {g.sections} วิชา/ตอน</span>
                     {g.noBudget > 0 && <span>· ไม่กำหนดงบ {g.noBudget} ตอน</span>}
                   </div>
@@ -496,7 +593,7 @@ export default function TimesheetViewer() {
                     <tr key={section?.id} className="odd:bg-white even:bg-slate-50">
                       <td className="px-3 py-2">
                         <button type="button" className="text-left hover:underline" title="ดูปฏิทินการลงเวลา"
-                          onClick={() => openCalendar(g.user, section, g.entries)}>
+                          onClick={() => openCalendar(g.user, section)}>
                           <span className="font-medium text-brand">{section?.course?.code}</span>{" "}
                           <span className="text-slate-500">{section?.course?.name}</span>
                         </button>
@@ -633,39 +730,120 @@ export default function TimesheetViewer() {
 
       <Modal
         open={!!calFor}
-        onClose={() => setCalFor(null)}
+        onClose={() => { setCalFor(null); setSelDay(null); }}
         title={calFor ? `ปฏิทินการลงเวลา — ${calFor.section?.course?.code} ตอน ${calFor.section?.section}` : ""}
       >
         {calFor && (
           <div>
-            <div className="mb-2 text-sm text-slate-600">
-              {calFor.name} · {TH_MONTHS[mm - 1]} {yy + 543}
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
+              <span>{calFor.name} · {TH_MONTHS[mm - 1]} {yy + 543}</span>
+              <span className="text-xs text-slate-400">
+                ตามตารางสอน {calSchedHours ? `${calSchedHours} ชม./วัน` : "กรอกเอง (Module)"} · {calRate} ฿/ชม.
+              </span>
             </div>
+            {calConfirmed && (
+              <div className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
+                เดือนนี้ยืนยันนำส่งแล้ว — การแก้ไขจะเปลี่ยนยอดจริง/ใช้ไป แต่ยอดเบิกและเอกสารที่ freeze ไว้ตอนยืนยันจะไม่เปลี่ยน
+                ให้กด <b>ยกเลิกการยืนยัน</b> ในตารางแล้วยืนยันใหม่หลังแก้เสร็จ
+              </div>
+            )}
             <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-400">
               {WD_TH.map((w) => <div key={w} className="py-1">{w}</div>)}
             </div>
             <div className="mt-1 grid grid-cols-7 gap-1">
               {monthMatrix(yy, mm - 1).flat().map((d, i) => {
                 if (!d) return <div key={i} />;
-                const h = calFor.dates[ymd(d)];
-                const has = h != null;
+                const key = ymd(d);
+                const v = calDates[key];
+                const has = !!v;
+                const sel = selDay === key;
+                const manual = has && v.raw != null && v.raw !== "";
                 return (
-                  <div key={i}
-                    title={has ? `${h} ชม.` : ""}
-                    className={`relative flex aspect-square items-center justify-center rounded-lg text-sm ${
-                      has ? "bg-emerald-500 font-semibold text-white" : "bg-slate-50 text-slate-500"
-                    }`}
+                  <button type="button" key={i}
+                    onClick={() => pickDay(d)}
+                    title={has ? `${v.hours} ชม.${manual ? " (แก้ไขเอง)" : ""} — คลิกเพื่อแก้ไข` : "คลิกเพื่อเพิ่มวันนี้"}
+                    className={`relative flex aspect-square items-center justify-center rounded-lg text-sm transition ${
+                      has ? "bg-emerald-500 font-semibold text-white hover:bg-emerald-600" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                    } ${sel ? "ring-2 ring-brand ring-offset-1" : ""}`}
                   >
                     {d.getDate()}
-                    {has && <span className="absolute bottom-0.5 text-[9px] font-normal">{h}</span>}
-                  </div>
+                    {has && <span className="absolute bottom-0.5 text-[9px] font-normal">{v.hours}{manual ? "*" : ""}</span>}
+                  </button>
                 );
               })}
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-              <span className="flex items-center gap-1"><i className="h-3 w-3 rounded bg-emerald-500 inline-block" /> วันที่ลงเวลา</span>
-              <span>รวม {Object.keys(calFor.dates).length} วัน · {Object.values(calFor.dates).reduce((a, b) => a + b, 0)} ชม.</span>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <span className="flex items-center gap-1"><i className="h-3 w-3 rounded bg-emerald-500 inline-block" /> วันที่ลงเวลา · * = ชั่วโมงที่แก้ไขเอง</span>
+              <span>รวม {Object.keys(calDates).length} วัน · {Math.round(Object.values(calDates).reduce((a, b) => a + b.hours, 0) * 100) / 100} ชม.</span>
             </div>
+
+            {/* ---- edit panel ---- */}
+            {selDay ? (
+              <div className="mt-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-slate-700">
+                    {calDates[selDay] ? "แก้ไขวันที่" : "เพิ่มวันที่"} {selDay.split("-").reverse().join("/")}
+                  </div>
+                  {calDates[selDay] && (
+                    <div className="text-xs text-slate-500">
+                      ปัจจุบัน {calDates[selDay].hours} ชม. = {thb(Math.round(calDates[selDay].hours * calRate * 100) / 100)} บาท
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="text-xs text-slate-600">
+                    จำนวนชั่วโมง
+                    <input type="number" step="0.25" min="0" className="input mt-1 w-28" value={hoursInput}
+                      onChange={(e) => setHoursInput(e.target.value)} disabled={calBusy} />
+                  </label>
+                  <button type="button" className="btn-primary" disabled={calBusy} onClick={() => saveDay("save")}>
+                    {calDates[selDay] ? "บันทึกชั่วโมง" : "เพิ่มวันนี้"}
+                  </button>
+                  {calDates[selDay] && calSchedHours > 0 && calDates[selDay].raw != null && (
+                    <button type="button" className="btn-ghost text-sm" disabled={calBusy} onClick={() => saveDay("reset")}
+                      title={`กลับไปใช้ ${calSchedHours} ชม. ตามตารางสอน`}>
+                      ใช้ตามตารางสอน ({calSchedHours} ชม.)
+                    </button>
+                  )}
+                  {calDates[selDay] && (
+                    <button type="button" className="btn-ghost text-sm text-red-600" disabled={calBusy} onClick={() => saveDay("delete")}>
+                      ลบวันนี้
+                    </button>
+                  )}
+                  <button type="button" className="btn-ghost text-sm" disabled={calBusy} onClick={() => setSelDay(null)}>ปิด</button>
+                </div>
+                {calPreview && (
+                  <div className="mt-2 grid gap-1 text-xs text-slate-600 sm:grid-cols-2">
+                    <div>
+                      <div className="font-medium text-slate-500">เดือนนี้ (ปัจจุบัน)</div>
+                      {calPreview.cur.days} วัน · {calPreview.cur.hours} ชม. · เงินจริง {thb(calPreview.cur.money)} บาท
+                      {calFor.emp === "SCHOLARSHIP" && <> · เบิกได้ {calPreview.cur.conv.hours} ชม. = <b>{thb(calPreview.cur.conv.money)}</b> บาท</>}
+                    </div>
+                    <div>
+                      <div className="font-medium text-brand">หลังบันทึก</div>
+                      {calPreview.next.days} วัน · {calPreview.next.hours} ชม. · เงินจริง {thb(calPreview.next.money)} บาท
+                      {calFor.emp === "SCHOLARSHIP" && <> · เบิกได้ {calPreview.next.conv.hours} ชม. = <b>{thb(calPreview.next.conv.money)}</b> บาท</>}
+                    </div>
+                    {(() => {
+                      const b = budgetBySection[calFor.section?.id];
+                      if (!b || b.budget == null) return null;
+                      // b.used = whole-term "ใช้ไป" (converted for ป.ตรี); shift it by this month's change
+                      const delta = calFor.emp === "SCHOLARSHIP"
+                        ? calPreview.next.conv.money - calPreview.cur.conv.money
+                        : calPreview.next.money - calPreview.cur.money;
+                      const remain = Math.round((b.budget - b.used - delta) * 100) / 100;
+                      return (
+                        <div className={`sm:col-span-2 ${remain < 0 ? "text-red-600 font-semibold" : "text-slate-500"}`}>
+                          งบวิชา {thb(b.budget)} · ใช้ไปทั้งเทอมหลังบันทึก ≈ {thb(Math.round((b.budget - remain) * 100) / 100)} · คงเหลือ ≈ {thb(remain)} บาท{remain < 0 ? " (เกินงบ!)" : ""}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-slate-400">คลิกวันในปฏิทินเพื่อแก้ชั่วโมง / ลบวัน หรือคลิกวันว่างเพื่อเพิ่มวัน</div>
+            )}
           </div>
         )}
       </Modal>

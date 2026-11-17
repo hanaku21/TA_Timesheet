@@ -64,7 +64,8 @@ export async function GET(req) {
     .select("id, code, name, curriculum_id, curriculum:curricula ( code )")
     .order("code");
   const { data: curricula } = await supabase.from("curricula").select("*").order("id");
-  return NextResponse.json({ sections: out, courses: courses || [], curricula: curricula || [], term });
+  const { data: terms } = await supabase.from("terms").select("code, is_active").order("code");
+  return NextResponse.json({ sections: out, courses: courses || [], curricula: curricula || [], term, active_term: active.code, terms: terms || [] });
 }
 
 // POST — create section in active term
@@ -77,10 +78,65 @@ export async function POST(req) {
   if (!f.course_id || !f.section) {
     return NextResponse.json({ error: "เลือกวิชาและระบุตอน (section)" }, { status: 400 });
   }
-  f.semester = active.code;
+  f.semester = (b.term || "").trim() || active.code; // the term the admin is viewing
   const { error } = await supabase.from("sections").upsert(f, { onConflict: "course_id,section,semester,teaching_type" });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
+}
+
+// PUT — move ALL sections of one term to another { from_term, to_term }
+//   Moves the sections together with their assignments, timesheet entries, confirmations
+//   and TOR periods, so nothing is orphaned. Refuses if the destination already has the
+//   same course/section/type (unique key) — nothing is changed in that case.
+export async function PUT(req) {
+  if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const supabase = getSupabase();
+  const { from_term, to_term } = await req.json();
+  if (!from_term || !to_term) return NextResponse.json({ error: "ต้องระบุภาคการศึกษาต้นทางและปลายทาง" }, { status: 400 });
+  if (from_term === to_term) return NextResponse.json({ error: "ภาคต้นทางและปลายทางเป็นภาคเดียวกัน" }, { status: 400 });
+  const { data: dest } = await supabase.from("terms").select("code").eq("code", to_term).maybeSingle();
+  if (!dest) return NextResponse.json({ error: `ไม่พบภาคการศึกษา ${to_term}` }, { status: 404 });
+
+  const sel = "id, course_id, section, teaching_type, course:courses ( code )";
+  const [{ data: src }, { data: dst }] = await Promise.all([
+    supabase.from("sections").select(sel).eq("semester", from_term),
+    supabase.from("sections").select(sel).eq("semester", to_term),
+  ]);
+  if (!src || src.length === 0) return NextResponse.json({ error: `ภาค ${from_term} ไม่มี section ให้ย้าย` }, { status: 400 });
+  const keyOf = (s) => `${s.course_id}|${s.section}|${s.teaching_type}`;
+  const taken = new Set((dst || []).map(keyOf));
+  const clash = src.filter((s) => taken.has(keyOf(s)));
+  if (clash.length) {
+    const list = clash.slice(0, 8).map((s) => `${s.course?.code || s.course_id} ตอน ${s.section} ${s.teaching_type || ""}`.trim()).join(", ");
+    return NextResponse.json(
+      { error: `ภาค ${to_term} มี section ซ้ำกันอยู่แล้ว ${clash.length} รายการ (${list}${clash.length > 8 ? ", …" : ""}) — ลบ/แก้ของภาคปลายทางก่อนแล้วลองใหม่` },
+      { status: 409 }
+    );
+  }
+
+  const ids = src.map((s) => s.id);
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 200) chunks.push(ids.slice(i, i + 200));
+  const steps = [
+    ["sections", "semester", "id"],
+    ["assignments", "semester", "section_id"],
+    ["timesheet_entries", "semester", "section_id"],
+    ["submissions", "term", "section_id"],
+  ];
+  const moved = {};
+  for (const [table, col, idCol] of steps) {
+    moved[table] = 0;
+    for (const part of chunks) {
+      const { data, error } = await supabase.from(table).update({ [col]: to_term }).in(idCol, part).select("id");
+      if (error) return NextResponse.json({ error: `${table}: ${error.message}`, moved }, { status: 500 });
+      moved[table] += (data || []).length;
+    }
+  }
+  // TOR contract windows of that term follow along (skipped quietly if the destination already has them)
+  const { data: tp } = await supabase.from("tor_periods").update({ term: to_term }).eq("term", from_term).select("id");
+  moved.tor_periods = (tp || []).length;
+
+  return NextResponse.json({ ok: true, moved });
 }
 
 // PATCH — update section { id, ...fields }

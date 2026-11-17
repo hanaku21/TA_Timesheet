@@ -32,7 +32,7 @@ export async function createSession(user) {
     .setExpirationTime("7d")
     .sign(secret());
 
-  cookies().set(COOKIE, token, {
+  (await cookies()).set(COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -41,13 +41,13 @@ export async function createSession(user) {
   });
 }
 
-export function clearSession() {
-  cookies().set(COOKIE, "", { path: "/", maxAge: 0 });
+export async function clearSession() {
+  (await cookies()).set(COOKIE, "", { path: "/", maxAge: 0 });
 }
 
 // Read + verify the session from cookies. Returns payload or null.
 export async function getSession() {
-  const token = cookies().get(COOKIE)?.value;
+  const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
@@ -57,7 +57,7 @@ export async function getSession() {
   }
 }
 
-// Verify a token string (used by middleware on the Edge runtime).
+// Verify a token string (used by src/proxy.js).
 export async function verifyToken(token) {
   try {
     const { payload } = await jwtVerify(token, secret());

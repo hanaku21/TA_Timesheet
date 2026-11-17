@@ -5,6 +5,7 @@
 
 -- Clean start (safe to re-run). Comment out if you want to keep data.
 DROP TABLE IF EXISTS timesheet_entries CASCADE;
+DROP TABLE IF EXISTS tor_periods CASCADE;
 DROP TABLE IF EXISTS blackout_curricula CASCADE;
 DROP TABLE IF EXISTS blackout_periods CASCADE;
 DROP TABLE IF EXISTS assignments CASCADE;
@@ -14,6 +15,7 @@ DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS curricula CASCADE;
 DROP TABLE IF EXISTS settings CASCADE;
 DROP TABLE IF EXISTS terms CASCADE;
+DROP TABLE IF EXISTS announcements CASCADE;
 
 -- ---------------------------------------------------------------------
 -- Terms (academic years / semesters). code e.g. '2569/1'
@@ -55,6 +57,8 @@ CREATE TABLE users (
   tor_number      TEXT,
   bank            TEXT,
   account_no      TEXT,
+  address         TEXT,            -- ที่อยู่ (ใบวางบิล/ใบเสร็จ จ้างเหมา)
+  id_card         TEXT,            -- เลขบัตรประชาชน / เลขผู้เสียภาษี
   password_hash   TEXT NOT NULL,
   role            TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
   active          BOOLEAN NOT NULL DEFAULT true,   -- inactive users cannot log in
@@ -121,6 +125,7 @@ CREATE TABLE blackout_periods (
   start_date  DATE NOT NULL,
   end_date    DATE NOT NULL,
   reason      TEXT,
+  term        TEXT,                                  -- academic term this holiday belongs to (migration 010)
   created_by  INTEGER REFERENCES users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (end_date >= start_date)
@@ -160,9 +165,30 @@ CREATE TABLE submissions (
   term          TEXT NOT NULL,
   month         TEXT NOT NULL,
   confirmed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  frozen_rows   JSONB,   -- snapshot of ทุน ป.ตรี document rows at confirm time
   UNIQUE (user_id, term, month, section_id)
 );
 CREATE INDEX idx_submissions_user ON submissions(user_id, term);
+
+-- ---------------------------------------------------------------------
+-- TOR periods — per-TOR contract window (imported from the TOR CSV).
+--   A section whose tor_number matches restricts its timesheet to
+--   [start_date, end_date]. One row per (tor_number, term).
+-- ---------------------------------------------------------------------
+CREATE TABLE tor_periods (
+  id            SERIAL PRIMARY KEY,
+  tor_number    TEXT NOT NULL,
+  term          TEXT NOT NULL,
+  start_date    DATE,
+  end_date      DATE,
+  duration_days INTEGER,
+  amount        NUMERIC,
+  note          TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tor_number, term)
+);
+CREATE INDEX idx_tor_periods_term ON tor_periods(term);
+CREATE INDEX idx_tor_periods_number ON tor_periods(tor_number);
 
 -- ---------------------------------------------------------------------
 -- Settings — key/value (semester dates, etc.)
@@ -171,6 +197,24 @@ CREATE TABLE settings (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- ---------------------------------------------------------------------
+-- Announcements — slideshow (modal) shown to TAs when they open the dashboard
+--   kind: text (title + body) | image (image_data = data URL)
+-- ---------------------------------------------------------------------
+CREATE TABLE announcements (
+  id          SERIAL PRIMARY KEY,
+  kind        TEXT NOT NULL CHECK (kind IN ('text','image')),
+  title       TEXT,
+  body        TEXT,
+  image_data  TEXT,
+  link_url    TEXT,
+  active      BOOLEAN NOT NULL DEFAULT true,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_by  INTEGER REFERENCES users(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_announcements_active ON announcements(active, sort_order);
 
 -- Keep sequences ahead of explicitly inserted ids after seeding
 -- (handled at end of seed.sql).

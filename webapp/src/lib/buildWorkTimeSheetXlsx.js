@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { TH_MONTHS } from "@/lib/constants";
-import { computeWorkTimeRows } from "@/lib/workTimeSheet";
+import { computeWorkTimeRows, instructorParen } from "@/lib/workTimeSheet";
 
 // "Work time sheet TA Student (CMU Rate)" — the ทุน ป.ตรี (SCHOLARSHIP) form.
 // Pass `wb` + `sheetName` to add a worksheet to an existing workbook (one sheet
@@ -148,7 +148,7 @@ export async function buildWorkTimeSheetWorkbook({ user, month, displayRows, wb:
 
   ws.mergeCells(`D${r + 2}:H${r + 2}`);
   const paren = ws.getCell(`D${r + 2}`);
-  paren.value = "(……………………………………………………………………)";
+  paren.value = instructorParen(displayRows, "(……………………………………………………………………)");
   paren.font = { size: 11 };
   paren.alignment = { horizontal: "center" };
 

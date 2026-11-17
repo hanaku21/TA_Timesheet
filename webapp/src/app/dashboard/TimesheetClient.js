@@ -124,6 +124,28 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
     ? Math.max(0, Math.floor((remainingCost / rate) * 100) / 100)
     : null;
   const overBudget = budgetTotal != null && projectedUsed > budgetTotal + 1e-6;
+  // Preview of how the server will fit an over-budget selection (same rule as /api/timesheet POST):
+  // days in date order; the day crossing the cap is cut to the remaining money; later days dropped.
+  const trimPlan = (() => {
+    if (!overBudget || !section || rate <= 0) return null;
+    let remaining = Math.round((budgetTotal - usedCost) * 100) / 100;
+    const adjusted = [], dropped = [];
+    [...picked].sort().forEach((d) => {
+      const h = entryHours(section, { hours: hoursByDate[d] });
+      const c = Math.round(h * rate * 100) / 100;
+      if (remaining <= 1e-6) { dropped.push(d); return; }
+      if (c <= remaining + 1e-6) { remaining = Math.round((remaining - c) * 100) / 100; return; }
+      const hh = Math.floor((remaining / rate) * 100) / 100;
+      if (hh > 0) adjusted.push({ date: d, from: h, to: hh }); else dropped.push(d);
+      remaining = 0;
+    });
+    return { over: Math.round((projectedUsed - budgetTotal) * 100) / 100, adjusted, dropped, noRoom: Math.round((budgetTotal - usedCost) * 100) / 100 <= 1e-6 };
+  })();
+  const fmtD = (d) => d.split("-").reverse().join("/");
+  const trimDetail = (adj, drop) => [
+    ...adj.map((a) => t("trimAdjust", { date: fmtD(a.date), from: a.from, to: a.to })),
+    ...(drop.length ? [t("trimDrop", { dates: drop.map(fmtD).join(", ") })] : []),
+  ].join(" · ");
 
   function dateState(d) {
     if (!d) return { kind: "empty" };
@@ -191,7 +213,13 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
     });
     const d = await res.json();
     if (!res.ok) { setMsg({ type: "error", text: d.error }); return; }
-    setMsg({ type: "ok", text: t("savedAll", { n: picked.length }) });
+    const trimmed = (d.adjusted && d.adjusted.length) || (d.dropped && d.dropped.length);
+    setMsg({
+      type: trimmed ? "warn" : "ok",
+      text: trimmed
+        ? t("savedTrimmed", { n: d.added, detail: trimDetail(d.adjusted || [], d.dropped || []) })
+        : t("savedAll", { n: picked.length }),
+    });
     setPicked([]); setRemarks({}); setHoursByDate({});
     invalidateTimesheet();
     load({ force: true });
@@ -434,14 +462,24 @@ export default function TimesheetClient({ name, employmentType, initialSectionId
             </ul>
           )}
 
+          {trimPlan && (
+            <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
+              <div className="font-semibold">{t("trimTitle", { over: thb(trimPlan.over) })}</div>
+              <ul className="mt-1 list-disc pl-4">
+                {trimPlan.adjusted.map((a) => <li key={a.date}>{t("trimAdjust", { date: fmtD(a.date), from: a.from, to: a.to })}</li>)}
+                {trimPlan.dropped.length > 0 && <li>{t("trimDrop", { dates: trimPlan.dropped.map(fmtD).join(", ") })}</li>}
+              </ul>
+            </div>
+          )}
+
           {picked.length > 0 && (
-            <button className="btn-blue mt-3 w-full" disabled={overBudget} onClick={saveAll}>
+            <button className="btn-blue mt-3 w-full" disabled={trimPlan?.noRoom} onClick={saveAll}>
               <EditIcon size={16} /> {t("save")}
             </button>
           )}
 
           {msg && (
-            <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+            <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${msg.type === "ok" ? "bg-emerald-50 text-emerald-700" : msg.type === "warn" ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-600"}`}>
               {msg.text}
             </div>
           )}

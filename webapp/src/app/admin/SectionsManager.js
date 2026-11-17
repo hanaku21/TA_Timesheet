@@ -28,15 +28,19 @@ export default function SectionsManager() {
   const [msg, setMsg] = useState(null);
   const [q, setQ] = useState("");
   const [curFilter, setCurFilter] = useState("");
+  const [term, setTerm] = useState(""); // "" = active term
+  const [moveTo, setMoveTo] = useState("");
+  const [showEmpty, setShowEmpty] = useState(false); // also list courses with no section in this term
+  const [moving, setMoving] = useState(false);
 
   const load = useCallback(async () => {
     const [a, b] = await Promise.all([
-      fetch("/api/admin/sections").then((r) => r.json()),
+      fetch(`/api/admin/sections${term ? `?term=${encodeURIComponent(term)}` : ""}`).then((r) => r.json()),
       fetch("/api/admin/users").then((r) => r.json()),
     ]);
     setData(a);
     setUsers(b.users || []);
-  }, []);
+  }, [term]);
   useEffect(() => { load(); }, [load]);
 
   // group sections under their course; include courses with no sections
@@ -56,6 +60,8 @@ export default function SectionsManager() {
   const shownGroups = useMemo(() => {
     const kw = q.trim().toLowerCase();
     return groups.filter((g) => {
+      // per term: only courses that have a section in the selected term (unless asked otherwise)
+      if (!showEmpty && g.sections.length === 0) return false;
       if (curFilter && String(g.course?.curriculum_id) !== String(curFilter)) return false;
       if (!kw) return true;
       const inCourse = `${g.course?.code || ""} ${g.course?.name || ""}`.toLowerCase().includes(kw);
@@ -64,7 +70,34 @@ export default function SectionsManager() {
       );
       return inCourse || inTA;
     });
-  }, [groups, q, curFilter]);
+  }, [groups, q, curFilter, showEmpty]);
+  const emptyCount = useMemo(() => groups.filter((g) => g.sections.length === 0).length, [groups]);
+
+  async function moveTerm() {
+    if (!moveTo) return;
+    const n = (data.sections || []).length;
+    if (!confirm(
+      `ย้ายวิชา/section ทั้งหมดของภาค ${data.term} (${n} section)\nไปอยู่ภาคการศึกษา ${moveTo}?\n\n` +
+      "การมอบหมายผู้ช่วยสอน, รายการลงเวลา, การยืนยันนำส่ง และช่วงสัญญา TOR ของ section เหล่านี้จะย้ายตามไปด้วย"
+    )) return;
+    setMoving(true);
+    try {
+      const res = await fetch("/api/admin/sections", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_term: data.term, to_term: moveTo }),
+      });
+      const d = await res.json();
+      if (!res.ok) { alert(d.error || "ย้ายไม่สำเร็จ"); return; }
+      const m = d.moved || {};
+      alert(`ย้ายแล้ว: ${m.sections || 0} section · มอบหมาย ${m.assignments || 0} · รายการลงเวลา ${m.timesheet_entries || 0} · ยืนยันนำส่ง ${m.submissions || 0} · ช่วง TOR ${m.tor_periods || 0}`);
+      const dest = moveTo;
+      setMoveTo("");
+      setTerm(dest);
+    } finally {
+      setMoving(false);
+    }
+  }
 
   // ---------- sections ----------
   const setS = (k) => (e) => setSecForm({ ...secForm, [k]: e.target.value });
@@ -79,7 +112,7 @@ export default function SectionsManager() {
     const res = await fetch("/api/admin/sections", {
       method: editing ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(secForm),
+      body: JSON.stringify({ ...secForm, term: data.term }),
     });
     const d = await res.json();
     if (!res.ok) { setMsg({ type: "error", text: d.error }); return; }
@@ -134,8 +167,18 @@ export default function SectionsManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">ปีการศึกษาที่ใช้งาน: <b>{data.term}</b></div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
+          <span>ภาคการศึกษา</span>
+          <select className="input py-1" value={term || data.term || ""} onChange={(e) => setTerm(e.target.value)}>
+            {(data.terms || []).map((t) => (
+              <option key={t.code} value={t.code}>{t.code}{t.is_active ? " (ใช้งานอยู่)" : ""}</option>
+            ))}
+          </select>
+          {data.term && data.active_term && data.term !== data.active_term && (
+            <span className="badge bg-amber-100 text-amber-700">กำลังดูภาคที่ไม่ได้ใช้งาน</span>
+          )}
+        </div>
         <div className="flex gap-2">
           <button className="btn-ghost" onClick={() => setCourseForm({ id: null, code: "", name: "", curriculum_id: "" })}>+ วิชา</button>
           <button className="btn-primary" onClick={() => setSecForm({ ...EMPTY_SEC })}>+ Section</button>
@@ -157,10 +200,36 @@ export default function SectionsManager() {
             </select>
           </div>
         </div>
-        <div className="text-sm text-slate-500">แสดง {shownGroups.length} วิชา</div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
+          <span>ภาคการศึกษา {data.term}: แสดง {shownGroups.length} วิชา</span>
+          {emptyCount > 0 && (
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={showEmpty} onChange={(e) => setShowEmpty(e.target.checked)} />
+              แสดงวิชาที่ยังไม่มี section ในภาคนี้ด้วย ({emptyCount})
+            </label>
+          )}
+        </div>
+        {(data.sections || []).length > 0 && (data.terms || []).length > 1 && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-sm text-slate-500">
+            <span>ย้ายวิชา/section ทั้งหมดของภาค {data.term} ({(data.sections || []).length} section) ไปภาค</span>
+            <select className="input w-auto py-1" value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
+              <option value="">— เลือกภาค —</option>
+              {(data.terms || []).filter((t) => t.code !== data.term).map((t) => (
+                <option key={t.code} value={t.code}>{t.code}{t.is_active ? " (ใช้งานอยู่)" : ""}</option>
+              ))}
+            </select>
+            <button className="btn-ghost px-2 py-1 text-xs" disabled={!moveTo || moving} onClick={moveTerm}>
+              {moving ? "กำลังย้าย..." : "ย้าย"}
+            </button>
+          </div>
+        )}
       </div>
 
-      {shownGroups.length === 0 && <div className="card text-center text-sm text-slate-400">ไม่พบวิชาที่ตรงกับตัวกรอง</div>}
+      {shownGroups.length === 0 && (
+        <div className="card text-center text-sm text-slate-400">
+          {(data.sections || []).length === 0 ? `ภาคการศึกษา ${data.term} ยังไม่มีวิชา/section` : "ไม่พบวิชาที่ตรงกับตัวกรอง"}
+        </div>
+      )}
 
       {/* Course cards, each with its sections */}
       <div className="space-y-3">

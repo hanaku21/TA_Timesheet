@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function LogPage({ searchParams }) {
   const session = await getSession();
   const t = makeT(localeFromName(session?.name));
-  const initialSectionId = searchParams?.section || "";
-  const initialMonth = searchParams?.month || "";
+  const sp = (await searchParams) || {}; // Next 15+: searchParams is a Promise
+  const initialSectionId = sp.section || "";
+  const initialMonth = sp.month || "";
   return (
     <div className="min-h-screen">
       <NavBar name={session?.name} role={session?.role} employmentType={session?.emp} />

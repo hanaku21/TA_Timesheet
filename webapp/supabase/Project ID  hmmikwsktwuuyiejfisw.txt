@@ -1,0 +1,5 @@
+Project ID : hmmikwsktwuuyiejfisw
+Publishable key : default (name )  sb_publishable_6UQFDB8EKv40NBQqyFuLJg_tLtjnZ6W (API Key)
+Secret Key : default(name) sb_secret_EhNBdhi17oas1Ey6emcTJg_-R5vfXB2(API Key)
+
+https://hmmikwsktwuuyiejfisw.supabase.co/rest/v1/

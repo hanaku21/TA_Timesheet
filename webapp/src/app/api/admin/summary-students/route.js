@@ -10,8 +10,8 @@ import { buildStudentSummaryWorkbook, monthRange } from "@/lib/buildStudentSumma
 export const runtime = "nodejs";
 
 // GET /api/admin/summary-students?term=<code>
-// Whole-term per-student claim summary (.xlsx): sheet "ป.ตรี" (SCHOLARSHIP) and
-// sheet "บัณฑิตศึกษา" (TA_RA). Amount per month = ยอดเบิก of the CONFIRMED units
+// Whole-term per-person claim summary (.xlsx): sheets "ป.ตรี" (SCHOLARSHIP),
+// "บัณฑิตศึกษา" (TA_RA) and "จ้างเหมา (TOR)" (real cost, เลข TOR column). Amount per month = ยอดเบิก of the CONFIRMED units
 // (ป.ตรี: converted at the scholarship rate, frozen snapshot when present; บัณฑิต: real cost).
 // Month columns span the first..last month that has any timesheet data in the term.
 export async function GET(req) {
@@ -28,8 +28,8 @@ export async function GET(req) {
         .from("timesheet_entries")
         .select(
           `id, work_date, hours, section_id,
-           user:users ( id, title, full_name, employment_type, student_id ),
-           section:sections ( id, start_time, end_time, rate )`
+           user:users ( id, title, full_name, employment_type, student_id, tor_number ),
+           section:sections ( id, start_time, end_time, rate, tor_number )`
         )
         .eq("semester", term)
     ),
@@ -68,7 +68,7 @@ export async function GET(req) {
     const month = e.work_date.slice(0, 7);
     const key = `${e.user.id}|${e.section.id}|${month}`;
     if (!confirmed.has(key)) return;
-    if (!pool[key]) pool[key] = { user: e.user, month, cost: 0, billedHours: 0 };
+    if (!pool[key]) pool[key] = { user: e.user, month, cost: 0, billedHours: 0, tor: e.section.tor_number || null };
     const money = entryCost(e.section, e);
     pool[key].cost = round2(pool[key].cost + money);
     // same pooling as the admin overview "เบิกได้" badge (ทุน ป.ตรี)
@@ -83,8 +83,9 @@ export async function GET(req) {
     const money = isSch
       ? (frozenMoney[key] != null ? frozenMoney[key] : round2(roundHalf(p.billedHours) * RATE))
       : p.cost;
-    if (!byUser[u.id]) byUser[u.id] = { user: u, byMonth: {} };
+    if (!byUser[u.id]) byUser[u.id] = { user: u, byMonth: {}, tors: new Set() };
     byUser[u.id].byMonth[p.month] = round2((byUser[u.id].byMonth[p.month] || 0) + money);
+    if (p.tor) byUser[u.id].tors.add(p.tor);
   });
   // month range = first..last month that actually has a confirmed amount
   // (months with no logging / no confirmation at the end are not shown)
@@ -94,9 +95,13 @@ export async function GET(req) {
   const sortTh = (a, b) => (a.user.full_name || "").localeCompare(b.user.full_name || "", "th");
   const ug = Object.values(byUser).filter((x) => x.user.employment_type === "SCHOLARSHIP").sort(sortTh);
   const grad = Object.values(byUser).filter((x) => x.user.employment_type === "TA_RA").sort(sortTh);
+  const tor = Object.values(byUser)
+    .filter((x) => x.user.employment_type === "TOR")
+    .map((x) => ({ ...x, tor: x.tors.size ? [...x.tors].sort().join(", ") : (x.user.tor_number || "") }))
+    .sort(sortTh);
 
   const { f07 } = await readSignatories(supabase);
-  const buffer = await buildStudentSummaryWorkbook({ ug, grad, months, term, f07 });
+  const buffer = await buildStudentSummaryWorkbook({ ug, grad, tor, months, term, f07 });
 
   const filename = `สรุปยอดเบิกรายคน_${String(term).replace("/", "-")}.xlsx`;
   return new NextResponse(buffer, {

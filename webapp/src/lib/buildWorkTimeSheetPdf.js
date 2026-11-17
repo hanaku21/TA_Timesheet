@@ -1,7 +1,7 @@
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { TH_MONTHS } from "@/lib/constants";
-import { computeWorkTimeRows } from "@/lib/workTimeSheet";
+import { computeWorkTimeRows, instructorParen } from "@/lib/workTimeSheet";
 import { LAKSAMAN_REGULAR_B64, LAKSAMAN_BOLD_B64 } from "@/lib/fontsData";
 import { wrapTextLines } from "@/lib/textWrap";
 
@@ -217,7 +217,7 @@ export async function buildWorkTimeSheetPdf({ user, month, displayRows }) {
   centered(lastPage, "For Instructor", colX(1) + cols[1].w / 2, fy, 10.5, bold);
   const sx = MARGIN + CONTENT_W * 0.55;
   centered(lastPage, "Sign ……………………………………………………………….", sx, fy, 10, font);
-  centered(lastPage, "(……………………………………………………………………)", sx, fy - 28, 10, font);
+  centered(lastPage, instructorParen(displayRows, "(……………………………………………………………………)"), sx, fy - 28, 10, font);
   centered(lastPage, "Instructor / Supervisor", sx, fy - 44, 10, font);
 
   const bytes = await doc.save();

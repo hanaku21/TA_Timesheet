@@ -132,3 +132,43 @@ export function computeWorkTimeRows(displayRows) {
   }
   return out;
 }
+
+// The single instructor of the sections on a sheet, or null.
+// Null when nobody is recorded, when a section's instructor field lists several people
+// (comma / slash / semicolon / newline / "และ" / "&"), or when the sections on the sheet
+// have different instructors — those cases keep the dotted blank to be written by hand.
+export function singleInstructor(displayRows) {
+  const names = [];
+  let several = false;
+  (displayRows || []).forEach((r) => {
+    const raw = String(r?.section?.instructor ?? "").trim();
+    if (!raw) return;
+    if (/[,;\/\n&]|\sและ\s/.test(raw)) several = true;
+    const n = raw.replace(/\s+/g, " ");
+    if (!names.includes(n)) names.push(n);
+  });
+  return !several && names.length === 1 ? names[0] : null;
+}
+
+// Text for the "(........)" line under "For Instructor" (Work time sheet).
+// With a name the dotted line stays, around the name: "(………name………)", about as wide as the blank.
+export function instructorParen(displayRows, blank) {
+  const n = singleInstructor(displayRows);
+  if (!n) return blank;
+  const dot = blank.replace(/[()]/g, "")[0] || ".";
+  const total = blank.replace(/[()]/g, "").length;
+  const visible = [...n].filter((ch) => !/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/.test(ch)).length;
+  // "…" is about as wide as two letters
+  const side = Math.floor((total - Math.ceil(visible / 2)) / 2);
+  return side >= 2 ? `(${dot.repeat(side)}${n}${dot.repeat(side)})` : `(${n})`;
+}
+
+// Display rows built from a frozen snapshot carry the section as it was saved at confirm
+// time (no instructor). Re-attach the live instructor by section id.
+export function attachInstructors(displayRows, liveRows) {
+  const byId = {};
+  (liveRows || []).forEach((r) => { if (r?.section?.id != null) byId[r.section.id] = r.section.instructor ?? null; });
+  return (displayRows || []).map((r) =>
+    r?.section ? { ...r, section: { ...r.section, instructor: byId[r.section.id] ?? r.section.instructor ?? null } } : r
+  );
+}

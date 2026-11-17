@@ -46,7 +46,7 @@ export async function GET(req) {
     .select(
       `id, work_date, remark, hours,
        section:sections (
-         id, section, teaching_type, start_time, end_time, rate, curriculum_id,
+         id, section, teaching_type, start_time, end_time, rate, curriculum_id, instructor,
          course:courses ( code, name ),
          curriculum:curricula ( code, name )
        )`
@@ -63,7 +63,8 @@ export async function GET(req) {
 
   const { data: bo } = await supabase
     .from("blackout_periods")
-    .select("start_date, end_date, blackout_curricula ( curriculum_id )");
+    .select("start_date, end_date, blackout_curricula ( curriculum_id )")
+    .eq("term", term);
   const blackouts = (bo || []).map((b) => ({
     start_date: b.start_date, end_date: b.end_date,
     curriculum_ids: (b.blackout_curricula || []).map((c) => c.curriculum_id),

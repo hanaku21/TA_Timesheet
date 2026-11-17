@@ -43,7 +43,8 @@ export function monthRange(first, last) {
 // people: [{ user: {title, full_name, student_id}, byMonth: { "YYYY-MM": money } }]
 function addSheet(wb, { level, people, months, term, f07 = {} }) {
   const isUg = level === "ug";
-  const ws = wb.addWorksheet(isUg ? "ป.ตรี" : "บัณฑิตศึกษา", {
+  const isTor = level === "tor";
+  const ws = wb.addWorksheet(isTor ? "จ้างเหมา (TOR)" : isUg ? "ป.ตรี" : "บัณฑิตศึกษา", {
     pageSetup: {
       paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0,
       margins: { left: 0.25, right: 0.25, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 },
@@ -52,21 +53,25 @@ function addSheet(wb, { level, people, months, term, f07 = {} }) {
   });
 
   const nMonths = months.length;
-  const widths = [6.6, 24.6, 12.7, ...months.map(() => 9.7), 11.4];
+  const widths = [6.6, 24.6, isTor ? 18 : 12.7, ...months.map(() => 9.7), 11.4];
   ws.columns = widths.map((w) => ({ width: w }));
   const N = widths.length;
   const LAST = colLetter(N);
   const TOTAL_COL = N;
   const withYear = new Set(months.map((m) => m.slice(0, 4))).size > 1;
   const termLabel = String(term || "").includes("/") ? term.split("/").reverse().join("/") : term;
-  const noticeDate = (isUg ? f07.noticeDateUg : f07.noticeDateGrad) || "";
+  const noticeDate = (isTor ? f07.noticeDateTor : isUg ? f07.noticeDateUg : f07.noticeDateGrad) || "";
   const levelText = isUg ? "นักศึกษาระดับปริญญาตรี" : "นักศึกษาระดับบัณฑิตศึกษา(ปริญญาโทหรือปริญญาเอก)";
   const fy = months.length ? fiscalYearBE(months[months.length - 1]) : fiscalYearBE(new Date().toISOString().slice(0, 7));
 
   // ---- title rows 1–4 (row 4 merged but blank, as in the template) ----
   const titles = [
-    `หลักฐานการจ่ายค่าตอบแทนนักศึกษาช่วยงาน ประจำปีงบประมาณ ${fy}`,
-    `เบิกเงินตามประกาศรายชื่อ${levelText}ที่ได้รับทุนผู้ช่วยสอน (TA)ประจำภาคการศึกษา ${termLabel}` + (noticeDate ? ` ลงวันที่ ${noticeDate}` : ""),
+    isTor
+      ? `หลักฐานการจ่ายค่าตอบแทนงานจ้างเหมาผู้ช่วยสอน ประจำปีงบประมาณ ${fy}`
+      : `หลักฐานการจ่ายค่าตอบแทนนักศึกษาช่วยงาน ประจำปีงบประมาณ ${fy}`,
+    isTor
+      ? `เบิกเงินตามสัญญาจ้างเหมาผู้ช่วยสอน (TOR) ประจำภาคการศึกษา ${termLabel}` + (noticeDate ? ` ลงวันที่ ${noticeDate}` : "")
+      : `เบิกเงินตามประกาศรายชื่อ${levelText}ที่ได้รับทุนผู้ช่วยสอน (TA)ประจำภาคการศึกษา ${termLabel}` + (noticeDate ? ` ลงวันที่ ${noticeDate}` : ""),
     "ฏีกาเงินรายได้ประจำปี.................................................................................เลขที่............................................ ลงวันที่...........................................",
     "",
   ];
@@ -85,7 +90,7 @@ function addSheet(wb, { level, people, months, term, f07 = {} }) {
   ws.getRow(5).height = 18.75;
 
   // ---- header row 6 ----
-  const headers = ["ลำดับที่", "ชื่อ-สกุล", "รหัสนักศึกษา", ...months.map((m) => monthLabel(m, withYear)), "จำนวนเงินรวม"];
+  const headers = ["ลำดับที่", "ชื่อ-สกุล", isTor ? "เลข TOR" : "รหัสนักศึกษา", ...months.map((m) => monthLabel(m, withYear)), "จำนวนเงินรวม"];
   const hr = ws.getRow(6);
   headers.forEach((h, i) => {
     const c = hr.getCell(i + 1);
@@ -101,7 +106,9 @@ function addSheet(wb, { level, people, months, term, f07 = {} }) {
   const firstData = r;
   people.forEach((p, idx) => {
     const row = ws.getRow(r);
-    const sid = p.user.student_id ? (/^\d+$/.test(p.user.student_id) ? Number(p.user.student_id) : p.user.student_id) : "";
+    const sid = isTor
+      ? (p.tor || p.user.tor_number || "")
+      : p.user.student_id ? (/^\d+$/.test(p.user.student_id) ? Number(p.user.student_id) : p.user.student_id) : "";
     const vals = [idx + 1, `${p.user.title || ""} ${p.user.full_name || ""}`.replace(/\s+/g, " ").trim(), sid];
     months.forEach((m) => vals.push(round2(p.byMonth[m] || 0)));
     const first = colLetter(4), last = colLetter(3 + nMonths);
@@ -172,11 +179,21 @@ function addSheet(wb, { level, people, months, term, f07 = {} }) {
 }
 function row_height_fix(ws, r) { ws.getRow(r).height = 22.5; }
 
-export async function buildStudentSummaryWorkbook({ ug, grad, months, term, f07 }) {
+// จ้างเหมา (TOR): one sheet, per person, amount per month = real cost (hours × rate) of confirmed units
+export async function buildTorSummaryWorkbook({ people, months, term, f07 }) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "CAMT TA Timesheet";
+  addSheet(wb, { level: "tor", people, months, term, f07 });
+  const buffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+export async function buildStudentSummaryWorkbook({ ug, grad, tor, months, term, f07 }) {
   const wb = new ExcelJS.Workbook();
   wb.creator = "CAMT TA Timesheet";
   addSheet(wb, { level: "ug", people: ug, months, term, f07 });
   addSheet(wb, { level: "grad", people: grad, months, term, f07 });
+  if (tor) addSheet(wb, { level: "tor", people: tor, months, term, f07 });
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }

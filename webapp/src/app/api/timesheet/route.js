@@ -36,7 +36,8 @@ export async function GET(req) {
       .order("work_date"),
     supabase
       .from("blackout_periods")
-      .select("id, start_date, end_date, reason, blackout_curricula ( curriculum_id )"),
+      .select("id, start_date, end_date, reason, blackout_curricula ( curriculum_id )")
+      .eq("term", term.code),
     supabase
       .from("submissions")
       .select("month, section_id")
@@ -190,7 +191,8 @@ export async function POST(req) {
   const [blackoutsRes, existingRes] = await Promise.all([
     supabase
       .from("blackout_periods")
-      .select("start_date, end_date, blackout_curricula ( curriculum_id )"),
+      .select("start_date, end_date, blackout_curricula ( curriculum_id )")
+      .eq("term", term.code),
     supabase
       .from("timesheet_entries")
       .select("work_date, hours")
@@ -230,17 +232,49 @@ export async function POST(req) {
     0
   );
 
+  // Over budget -> do NOT reject: fit the submission into what is left.
+  // Days are taken in date order; the day that crosses the cap gets its hours cut
+  // so the section lands exactly on expected_cost, and any later days are dropped.
+  const adjusted = []; // [{ date, from, to }]  (hours trimmed)
+  const dropped = [];  // dates removed entirely
   if (budget != null) {
     const projected = Math.round((usedCost + newCost) * 100) / 100;
     if (projected > budget + 1e-6) {
-      return NextResponse.json(
-        {
-          error:
-            `เกินงบประมาณที่กำหนด (ค่าใช้จ่ายคาดการณ์ ${budget.toLocaleString("th-TH")} บาท). ` +
-            `ใช้ไปแล้ว ${usedCost.toLocaleString("th-TH")} + รายการนี้ ${newCost.toLocaleString("th-TH")} บาท`,
-        },
-        { status: 400 }
-      );
+      const rate = toRate(section.rate);
+      let remaining = Math.round((budget - usedCost) * 100) / 100;
+      if (remaining <= 1e-6 || rate <= 0) {
+        return NextResponse.json(
+          { error: `งบประมาณของวิชานี้ถูกใช้ครบแล้ว (ค่าใช้จ่ายคาดการณ์ ${budget.toLocaleString("th-TH")} บาท ใช้ไปแล้ว ${usedCost.toLocaleString("th-TH")} บาท) ไม่สามารถลงเวลาเพิ่มได้` },
+          { status: 400 }
+        );
+      }
+      const fitted = [];
+      items.sort((a, b) => a.date.localeCompare(b.date)).forEach((i) => {
+        const h = entryHours(section, { hours: hasHours(i) ? i.hours : null });
+        const c = Math.round(h * rate * 100) / 100;
+        if (remaining <= 1e-6) { dropped.push(i.date); return; }
+        if (c <= remaining + 1e-6) {
+          fitted.push(i);
+          remaining = Math.round((remaining - c) * 100) / 100;
+        } else {
+          // partial day: hours that exactly use up the remaining budget (2 decimals, rounded down)
+          const hh = Math.floor((remaining / rate) * 100) / 100;
+          if (hh > 0) {
+            fitted.push({ ...i, hours: hh });
+            adjusted.push({ date: i.date, from: h, to: hh });
+          } else {
+            dropped.push(i.date);
+          }
+          remaining = 0;
+        }
+      });
+      items = fitted;
+      if (items.length === 0) {
+        return NextResponse.json(
+          { error: `งบประมาณคงเหลือ ${Math.round((budget - usedCost) * 100) / 100} บาท ไม่พอสำหรับวันที่เลือก` },
+          { status: 400 }
+        );
+      }
     }
   }
 
@@ -258,7 +292,11 @@ export async function POST(req) {
     .upsert(rows, { onConflict: "user_id,section_id,work_date" });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, added: rows.length });
+  return NextResponse.json({ ok: true, added: rows.length, adjusted, dropped, budget, used: Math.round((usedCost + newCostOf(rows)) * 100) / 100 });
+
+  function newCostOf(list) {
+    return list.reduce((a, r) => a + entryCost(section, r), 0);
+  }
 }
 
 // DELETE /api/timesheet?id=123

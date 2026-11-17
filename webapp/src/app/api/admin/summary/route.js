@@ -33,7 +33,8 @@ export async function GET(req) {
   const monthEnd = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
 
   const [entriesRes, subsRes, cfgRes, curRes] = await Promise.all([
-    supabase
+    // paged: a busy month can pass PostgREST's 1,000-row cap
+    selectAll(() => supabase
       .from("timesheet_entries")
       .select(
         `id, work_date, remark, hours,
@@ -46,8 +47,7 @@ export async function GET(req) {
       )
       .eq("semester", term)
       .gte("work_date", monthStart)
-      .lte("work_date", monthEnd)
-      .order("work_date"),
+      .lte("work_date", monthEnd)),
     supabase.from("submissions").select("user_id, section_id").eq("term", term).eq("month", month),
     supabase.from("settings").select("key, value").in("key", ["scholarship_rate"]),
     supabase.from("curricula").select("id, code"),
@@ -65,7 +65,7 @@ export async function GET(req) {
     frozenList = data || [];
   } catch { frozenList = []; }
 
-  let rows = entriesRes.data || [];
+  let rows = (entriesRes.data || []).sort((a, b) => a.work_date.localeCompare(b.work_date) || a.id - b.id);
   if (curriculum) rows = rows.filter((r) => String(r.section?.curriculum_id) === String(curriculum));
   if (type) rows = rows.filter((r) => r.user?.employment_type === type);
 
@@ -101,37 +101,51 @@ export async function GET(req) {
     converted[key] = { hours, money: round2(hours * RATE) };
   });
 
-  // ---- budget per confirmed section: expected_cost vs. used over the whole term ----
-  const sectionIds = [...new Set(rows.map((r) => r.section?.id).filter((x) => x != null))];
-  const budgets = {}; // sid -> { budget, used, remaining }
-  if (sectionIds.length) {
-    const [secRes, termEntRes] = await Promise.all([
-      supabase.from("sections").select("id, expected_cost").in("id", sectionIds),
-      selectAll(() =>
+  // ---- budget (whole term) for EVERY section assigned to TAs of the selected type/curriculum ----
+  // Not limited to the sections confirmed this month, so งบเต็ม / ใช้ไปทั้งเทอม / คงเหลือ
+  // in the per-type table describe the whole term (and match the whole-term files).
+  const budgets = {};          // sid -> { budget, used, remaining }  (used in the detail rows)
+  const termBudgetByType = {}; // emp -> { budget, used, remaining } (used in the per-type table)
+  {
+    const assignsRes = await supabase
+      .from("assignments")
+      .select(`section_id, user:users ( id, employment_type, active, role ), section:sections ( id, expected_cost, curriculum_id )`)
+      .eq("semester", term);
+    let assigns = (assignsRes.data || []).filter((a) => a.user && a.section && a.user.active !== false && a.user.role === "user");
+    if (curriculum) assigns = assigns.filter((a) => String(a.section.curriculum_id) === String(curriculum));
+    if (type) assigns = assigns.filter((a) => a.user.employment_type === type);
+    const secType = {}; // sid -> employment_type of the assigned TA
+    assigns.forEach((a) => { if (!secType[a.section.id]) secType[a.section.id] = a.user.employment_type; });
+    const sectionIds = Object.keys(secType).map(Number);
+    if (sectionIds.length) {
+      const termEntRes = await selectAll(() =>
         supabase
           .from("timesheet_entries")
           .select("id, section_id, hours, section:sections ( start_time, end_time, rate )")
           .eq("semester", term)
           .in("section_id", sectionIds)
-      ),
-    ]);
-    // sections belonging to ทุน ป.ตรี -> "ใช้ไป" is the claimable amount (converted), not the real cost
-    const schSections = new Set(
-      rows.filter((r) => r.user?.employment_type === "SCHOLARSHIP").map((r) => r.section?.id)
-    );
-    const used = {};
-    const billed = {};
-    (termEntRes.data || []).forEach((e) => {
-      if (!e.section) return;
-      const c = entryCost(e.section, e);
-      used[e.section_id] = round2((used[e.section_id] || 0) + c);
-      billed[e.section_id] = round2((billed[e.section_id] || 0) + round2(c / RATE));
-    });
-    (secRes.data || []).forEach((sec) => {
-      const budget = sec.expected_cost == null ? null : Number(sec.expected_cost);
-      const u = schSections.has(sec.id) ? round2(roundHalf(billed[sec.id] || 0) * RATE) : (used[sec.id] || 0);
-      budgets[sec.id] = { budget, used: u, remaining: budget == null ? null : round2(budget - u) };
-    });
+      );
+      const used = {};
+      const billed = {};
+      (termEntRes.data || []).forEach((e) => {
+        if (!e.section) return;
+        const c = entryCost(e.section, e);
+        used[e.section_id] = round2((used[e.section_id] || 0) + c);
+        billed[e.section_id] = round2((billed[e.section_id] || 0) + round2(c / RATE));
+      });
+      assigns.forEach((a) => {
+        const sec = a.section;
+        if (budgets[sec.id]) return;
+        const emp = secType[sec.id];
+        const budget = sec.expected_cost == null ? null : Number(sec.expected_cost);
+        // ทุน ป.ตรี -> "ใช้ไป" is the claimable amount (converted), other types = real cost
+        const u = emp === "SCHOLARSHIP" ? round2(roundHalf(billed[sec.id] || 0) * RATE) : (used[sec.id] || 0);
+        budgets[sec.id] = { budget, used: u, remaining: budget == null ? null : round2(budget - u) };
+        const t = termBudgetByType[emp] || (termBudgetByType[emp] = { budget: 0, used: 0, remaining: 0 });
+        t.used = round2(t.used + u);
+        if (budget != null) { t.budget = round2(t.budget + budget); t.remaining = round2(t.remaining + (budget - u)); }
+      });
+    }
   }
 
   const curLabel = curriculum
@@ -141,7 +155,7 @@ export async function GET(req) {
   const { f07 } = await readSignatories(supabase);
 
   const buffer = await buildCostSummaryWorkbook({
-    rows, converted, confirmed, budgets, term, month, scholarshipRate: RATE, f07,
+    rows, converted, confirmed, budgets, termBudgetByType, term, month, scholarshipRate: RATE, f07,
     filters: { curriculumLabel: curLabel, typeLabel: type ? EMP_LABELS[type] || type : "" },
   });
 

@@ -177,7 +177,7 @@ export default function ImportManager() {
       return;
     }
     if (!term) {
-      setErr("กรุณาเลือกปีการศึกษาที่จะนำเข้า");
+      setErr("กรุณาเลือกภาคการศึกษาที่จะนำเข้า");
       return;
     }
     const fd = new FormData();
@@ -202,7 +202,7 @@ export default function ImportManager() {
     setTorErr("");
     setTorResult(null);
     if (!torFile) { setTorErr("กรุณาเลือกไฟล์ CSV ของ TOR"); return; }
-    if (!term) { setTorErr("กรุณาเลือกปีการศึกษาที่จะนำเข้า"); return; }
+    if (!term) { setTorErr("กรุณาเลือกภาคการศึกษาที่จะนำเข้า"); return; }
     const fd = new FormData();
     fd.append("file", torFile);
     fd.append("term", term);
@@ -341,7 +341,7 @@ export default function ImportManager() {
     {/* Backup */}
     <div className="card">
       <h3 className="font-semibold text-slate-700">สำรองข้อมูล (Backup)</h3>
-      <p className="mt-1 text-sm text-slate-500">ดาวน์โหลดข้อมูลทั้งระบบ (ทุกปีการศึกษา) เพื่อเก็บสำรอง</p>
+      <p className="mt-1 text-sm text-slate-500">ดาวน์โหลดข้อมูลทั้งระบบ (ทุกภาคการศึกษา) เพื่อเก็บสำรอง</p>
       <div className="mt-3 flex gap-2">
         <a className="btn-ghost" href="/api/admin/backup?format=json">⬇ Backup (.json)</a>
         <a className="btn-ghost" href="/api/admin/backup?format=xlsx">⬇ Backup (.xlsx)</a>
@@ -357,14 +357,14 @@ export default function ImportManager() {
         </p>
 
         <div>
-          <label className="label">นำเข้าไปยังปีการศึกษา *</label>
+          <label className="label">นำเข้าไปยังภาคการศึกษา *</label>
           <select className="input" value={term} onChange={(e) => setTerm(e.target.value)}>
-            {terms.length === 0 && <option value="">— ยังไม่มีปีการศึกษา —</option>}
+            {terms.length === 0 && <option value="">— ยังไม่มีภาคการศึกษา —</option>}
             {terms.map((t) => (
               <option key={t.code} value={t.code}>{t.code}{t.is_active ? " (ใช้งานอยู่)" : ""}</option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-slate-400">ข้อมูลวิชา/section/มอบหมายงานจะถูกบันทึกลงปีการศึกษาที่เลือก</p>
+          <p className="mt-1 text-xs text-slate-400">ข้อมูลวิชา/section/มอบหมายงานจะถูกบันทึกลงภาคการศึกษาที่เลือก</p>
         </div>
 
         <div>
@@ -464,9 +464,9 @@ export default function ImportManager() {
         </p>
 
         <div>
-          <label className="label">นำเข้าไปยังปีการศึกษา *</label>
+          <label className="label">นำเข้าไปยังภาคการศึกษา *</label>
           <select className="input" value={term} onChange={(e) => setTerm(e.target.value)}>
-            {terms.length === 0 && <option value="">— ยังไม่มีปีการศึกษา —</option>}
+            {terms.length === 0 && <option value="">— ยังไม่มีภาคการศึกษา —</option>}
             {terms.map((t) => (
               <option key={t.code} value={t.code}>{t.code}{t.is_active ? " (ใช้งานอยู่)" : ""}</option>
             ))}
@@ -512,12 +512,12 @@ export default function ImportManager() {
             </div>
             {torResult.unmatched > 0 && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                มี {torResult.unmatched} เลข TOR ที่ยังไม่มีวิชา/section ตรงกันในปีการศึกษานี้
+                มี {torResult.unmatched} เลข TOR ที่ยังไม่มีวิชา/section ตรงกันในภาคการศึกษานี้
                 (จะเริ่มมีผลเมื่อ section ที่มีเลข TOR นั้นถูกนำเข้า)
               </div>
             )}
             <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              นำเข้าเรียบร้อย (ปีการศึกษา {torResult.term})
+              นำเข้าเรียบร้อย (ภาคการศึกษา {torResult.term})
             </div>
           </div>
         )}

@@ -3,7 +3,7 @@
 ระบบบันทึกเวลาทำงานผู้ช่วยสอน (TA Timesheet) สำหรับ CAMT — เว็บแอปพลิเคชัน Next.js + Supabase (PostgreSQL) พร้อม deploy บน Vercel
 
 > **สำคัญเรื่องเวอร์ชัน / ความปลอดภัย:**
-> - โปรเจกต์นี้ใช้ **Next.js 14.2.x (webpack)** — `package.json` จำกัดไว้ที่ `^14.2.33` (ต่ำกว่า 15) เพราะ Turbopack ของ Next 16 มีบั๊กพาร์ส ESM ของ `@supabase/postgrest-js` ("Unterminated block comment") เวอร์ชัน 14.2.33 ปิดช่องโหว่ความปลอดภัยสำคัญของ Next แล้ว (รวมถึง middleware auth bypass)
+> - โปรเจกต์นี้ใช้ **Next.js 16 (Turbopack) + React 19** ต้องใช้ Node.js 20.9 ขึ้นไป — อัปเกรดจาก 14.2 เมื่อ พ.ย. 2569: `cookies()` และ `searchParams` เป็น async, `src/middleware.js` เปลี่ยนเป็น `src/proxy.js`, เอาสคริปต์ `next lint` ออก (Next 16 ไม่มีคำสั่งนี้แล้ว) บั๊ก Turbopack กับ `@supabase/postgrest-js` ที่เคยเจอไม่เกิดแล้วกับ supabase-js 2.110
 > - **อย่ารัน `npm audit fix --force`** เด็ดขาด เพราะมันจะดัน `next` ขึ้น 16 (พังเรื่อง Turbopack) และ downgrade `exceljs` เป็น 3.x (breaking)
 > - วิธีอัปเดตให้ปลอดภัยคือ **clean reinstall**: ลบ `node_modules` + `package-lock.json` แล้ว `npm install` — จะได้ Supabase 2.74+ (ปิดช่องโหว่ auth-js), Next 14.2.33, postcss 8.5.10+ โดยอัตโนมัติ
 > - ช่องโหว่ที่เหลือ (uuid ใน exceljs) เป็นระดับต่ำและไม่กระทบการใช้งานนี้ (เราไม่ได้ส่ง buffer ให้ uuid)
@@ -56,7 +56,7 @@ webapp/
 │   │   └── api/                    # API routes (auth, timesheet, admin)
 │   ├── lib/                        # supabase client, auth (JWT/bcrypt), constants
 │   ├── components/                 # NavBar
-│   └── middleware.js               # ป้องกันเส้นทาง /dashboard, /admin
+│   └── proxy.js                    # ป้องกันเส้นทาง /dashboard, /admin (เดิมชื่อ middleware.js)
 ├── SAMPLE_LOGINS.md                # บัญชีตัวอย่างสำหรับทดสอบ
 └── .env.example
 ```

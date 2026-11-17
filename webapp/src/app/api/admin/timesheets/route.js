@@ -42,7 +42,7 @@ export async function GET(req) {
         .eq("semester", term)
         .gte("work_date", monthStart)
         .lte("work_date", monthEnd)
-    , { orderBy: "work_date" }),
+    ),
     supabase.from("curricula").select("*").order("id"),
     supabase.from("terms").select("code, name, is_active, start_date, end_date").order("code"),
     supabase.from("submissions").select("user_id, section_id").eq("term", term).eq("month", month),
@@ -69,7 +69,7 @@ export async function GET(req) {
 
   if (entriesRes.error) return NextResponse.json({ error: entriesRes.error.message }, { status: 500 });
 
-  let rows = entriesRes.data || [];
+  let rows = (entriesRes.data || []).sort((a, b) => a.work_date.localeCompare(b.work_date) || a.id - b.id);
   if (curriculum) rows = rows.filter((r) => String(r.section?.curriculum_id) === String(curriculum));
   if (type) rows = rows.filter((r) => r.user?.employment_type === type);
 

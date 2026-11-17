@@ -5,6 +5,7 @@ import { bahtText } from "@/lib/bahtText";
 import { fmtDateTaRa, deriveLevelAndProgram } from "@/lib/buildTaRaXlsx";
 import { LAKSAMAN_REGULAR_B64, LAKSAMAN_BOLD_B64 } from "@/lib/fontsData";
 import { wrapTextLines } from "@/lib/textWrap";
+import { singleInstructor } from "@/lib/workTimeSheet";
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const num = (n, dp = 0) =>
@@ -231,8 +232,10 @@ export async function buildTaRaPdf({ user, month, displayRows, title, signatorie
   // When enabled by admin, the head-of-department and approver blocks are
   // pre-filled with a name (inside the parentheses) and a position.
   const sig = signatories && signatories.enabled ? signatories : null;
+  const instructor = singleInstructor(displayRows);
   const blocks = [
-    { from: 0, to: 1, label: "ผู้จัดทำ/ผู้ตรวจสอบ" },
+    // ผู้จัดทำ/ผู้ตรวจสอบ = the course instructor (only when there is exactly one)
+    { from: 0, to: 1, label: "ผู้จัดทำ/ผู้ตรวจสอบ", fill: { name: instructor || null, position: "อาจารย์" } },
     { from: 1, to: 4, label: "หัวหน้าภาควิชาหรือตำแหน่งอื่นที่เทียบเท่า", fill: sig?.head },
     { from: 4, to: 6, label: "ผู้อนุมัติ", fill: sig?.approver },
     { from: 6, to: 8, label: "ผู้จ่ายเงิน" },
@@ -240,6 +243,33 @@ export async function buildTaRaPdf({ user, month, displayRows, title, signatorie
   const edge = (i) => (i >= cols.length ? MARGIN + CONTENT_W : colX(i));
   const FH = 24; // label row height
   const LSIZE = 9;
+
+  // Block edges start on the table's column boundaries, but a block whose name / position
+  // is too long for it is WIDENED (text size is never reduced for this): it takes the width
+  // it is missing from the neighbours that have room to spare, nearest first.
+  const SIG_PAD = 12;
+  const needOf = (b) => {
+    const texts = [b.label];
+    if (b.fill?.name) texts.push(`(${b.fill.name})`);
+    if (b.fill?.position) texts.push(`ตำแหน่ง ${b.fill.position}`);
+    const w = Math.max(...texts.map((t, i) => tw(t, i === 0 ? bold : font, i === 0 ? 9.5 : LSIZE))) + SIG_PAD;
+    return Math.max(w, 95); // an empty block still needs room for "ลงชื่อ ......"
+  };
+  const widths = blocks.map((b) => edge(b.to) - edge(b.from));
+  const needs = blocks.map((b, i) => Math.min(needOf(b), i === 1 && !b.fill ? widths[i] : Infinity));
+  blocks.forEach((b, i) => {
+    let lack = needs[i] - widths[i];
+    if (lack <= 0) return;
+    const order = blocks.map((_, j) => j).filter((j) => j !== i).sort((a, c) => Math.abs(a - i) - Math.abs(c - i) || (widths[c] - needs[c]) - (widths[a] - needs[a]));
+    for (const j of order) {
+      if (lack <= 0) break;
+      const spare = Math.max(0, widths[j] - Math.max(needs[j], 95));
+      const take = Math.min(spare, lack);
+      widths[j] -= take; widths[i] += take; lack -= take;
+    }
+  });
+  const xs = [MARGIN];
+  widths.forEach((w) => xs.push(xs[xs.length - 1] + w));
   const kinds = ["sign", "paren", "role", "date"];
   const boxH = FH + kinds.length * 17 + 6;
 
@@ -258,24 +288,47 @@ export async function buildTaRaPdf({ user, month, displayRows, title, signatorie
   };
 
   page.drawRectangle({ x: MARGIN, y: y - boxH, width: CONTENT_W, height: boxH, borderColor: black, borderWidth: 0.7 });
-  // dividers sit exactly on the table's column boundaries
-  blocks.slice(1).forEach((b) => {
-    const x = edge(b.from);
+  // dividers: the table's column boundaries, moved only where a block had to be widened
+  blocks.slice(1).forEach((b, i) => {
+    const x = xs[i + 1];
     page.drawLine({ start: { x, y }, end: { x, y: y - boxH }, thickness: 0.7, color: black });
   });
   page.drawLine({ start: { x: MARGIN, y: y - FH }, end: { x: MARGIN + CONTENT_W, y: y - FH }, thickness: 0.7, color: black });
 
-  blocks.forEach((b) => {
-    const x1 = edge(b.from);
-    const x2 = edge(b.to);
+  blocks.forEach((b, bi) => {
+    const x1 = xs[bi];
+    const x2 = xs[bi + 1];
     const cx = (x1 + x2) / 2;
     const bw = x2 - x1;
     const size = tw(b.label, bold, 9.5) > bw - 8 ? 7.5 : 9.5;
     centered(b.label, cx, y - FH / 2 - 3, size, bold);
     kinds.forEach((kind, k) => {
       const yy = y - FH - 14 - k * 17;
-      if (kind === "paren" && b.fill?.name) { centered(`(${b.fill.name})`, cx, yy, LSIZE, font); return; }
-      if (kind === "role" && b.fill?.position) { centered(`ตำแหน่ง ${b.fill.position}`, cx, yy, LSIZE, font); return; }
+      if (kind === "paren" && b.fill?.name) {
+        // keep the dotted line around the name — "(.....name.....)" — as wide as an empty one;
+        // a name too long for that drops the dots and, if still too wide, a smaller font (min 6pt)
+        const target = bw - 10;
+        let side = "";
+        while (tw(`(${side}.${b.fill.name}${side}.)`, font, LSIZE) <= target) side += ".";
+        const txt = side.length >= 2 ? `(${side}${b.fill.name}${side})` : `(${b.fill.name})`;
+        let size = LSIZE;
+        while (size > 5.5 && tw(txt, font, size) > bw - 8) size -= 0.25;
+        centered(txt, cx, yy, size, font);
+        return;
+      }
+      if (kind === "role" && b.fill?.position) {
+        // the block was widened to hold this line; shrinking is only a last resort when
+        // the whole footer has no width left to give
+        // dotted line kept around the position — "ตำแหน่ง .....อาจารย์....." — as wide as an empty one
+        const target = bw - 10;
+        let side = "";
+        while (tw(`ตำแหน่ง ${side}.${b.fill.position}${side}.`, font, LSIZE) <= target) side += ".";
+        const txt = side.length >= 2 ? `ตำแหน่ง ${side}${b.fill.position}${side}` : `ตำแหน่ง ${b.fill.position}`;
+        let size = LSIZE;
+        while (size > 5.5 && tw(txt, font, size) > bw - 8) size -= 0.25;
+        centered(txt, cx, yy, size, font);
+        return;
+      }
       centered(dotLine(kind, bw), cx, yy, LSIZE, font);
     });
   });
