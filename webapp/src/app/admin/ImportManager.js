@@ -231,12 +231,12 @@ export default function ImportManager() {
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <div>
           <label className="label">อัตรา (บาท/ชั่วโมง)</label>
-          <input type="number" min="1" step="0.01" className="input w-40" value={cfg.scholarship_rate}
+          <input type="number" min="1" step="0.01" className="input w-40" value={cfg.scholarship_rate ?? ""}
             onChange={(e) => setCfg({ ...cfg, scholarship_rate: e.target.value })} />
         </div>
         <div>
           <label className="label">เพดานชั่วโมง/วัน</label>
-          <input type="number" min="1" step="0.5" className="input w-40" value={cfg.scholarship_max_hours}
+          <input type="number" min="1" step="0.5" className="input w-40" value={cfg.scholarship_max_hours ?? ""}
             onChange={(e) => setCfg({ ...cfg, scholarship_max_hours: e.target.value })} />
         </div>
         <button className="btn-primary">บันทึกการตั้งค่า</button>
@@ -274,22 +274,22 @@ export default function ImportManager() {
         <div className="rounded-lg border border-slate-200 p-3">
           <div className="mb-2 text-sm font-semibold text-slate-700">หัวหน้าภาควิชาหรือตำแหน่งอื่นที่เทียบเท่า</div>
           <label className="label">ชื่อ (แสดงในวงเล็บ)</label>
-          <input className="input" disabled={!sign.enabled} value={sign.head.name}
+          <input className="input" disabled={!sign.enabled} value={sign.head.name ?? ""}
             onChange={(e) => setSign((s) => ({ ...s, head: { ...s.head, name: e.target.value } }))}
             placeholder="เช่น ผศ.ดร. สมชาย ใจดี" />
           <label className="label mt-2">ตำแหน่ง</label>
-          <input className="input" disabled={!sign.enabled} value={sign.head.position}
+          <input className="input" disabled={!sign.enabled} value={sign.head.position ?? ""}
             onChange={(e) => setSign((s) => ({ ...s, head: { ...s.head, position: e.target.value } }))}
             placeholder="เช่น หัวหน้าสำนักวิชา" />
         </div>
         <div className="rounded-lg border border-slate-200 p-3">
           <div className="mb-2 text-sm font-semibold text-slate-700">ผู้อนุมัติ</div>
           <label className="label">ชื่อ (แสดงในวงเล็บ)</label>
-          <input className="input" disabled={!sign.enabled} value={sign.approver.name}
+          <input className="input" disabled={!sign.enabled} value={sign.approver.name ?? ""}
             onChange={(e) => setSign((s) => ({ ...s, approver: { ...s.approver, name: e.target.value } }))}
             placeholder="เช่น รศ.ดร. สมหญิง เก่งมาก" />
           <label className="label mt-2">ตำแหน่ง</label>
-          <input className="input" disabled={!sign.enabled} value={sign.approver.position}
+          <input className="input" disabled={!sign.enabled} value={sign.approver.position ?? ""}
             onChange={(e) => setSign((s) => ({ ...s, approver: { ...s.approver, position: e.target.value } }))}
             placeholder="เช่น คณบดี" />
         </div>

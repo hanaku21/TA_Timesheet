@@ -311,7 +311,7 @@ export default function SectionsManager() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="label">รหัสวิชา *</label>
-                <input className="input" placeholder="เช่น 953104" value={courseForm.code} onChange={setC("code")} required />
+                <input className="input" placeholder="เช่น 953104" value={courseForm.code ?? ""} onChange={setC("code")} required />
               </div>
               <div>
                 <label className="label">หลักสูตร</label>
@@ -322,7 +322,7 @@ export default function SectionsManager() {
               </div>
               <div className="sm:col-span-2">
                 <label className="label">ชื่อวิชา *</label>
-                <input className="input" placeholder="ชื่อวิชา" value={courseForm.name} onChange={setC("name")} required />
+                <input className="input" placeholder="ชื่อวิชา" value={courseForm.name ?? ""} onChange={setC("name")} required />
               </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -347,7 +347,7 @@ export default function SectionsManager() {
               </div>
               <div>
                 <label className="label">ตอน (section) *</label>
-                <input className="input" placeholder="เช่น 001, 701-1" value={secForm.section} onChange={setS("section")} required />
+                <input className="input" placeholder="เช่น 001, 701-1" value={secForm.section ?? ""} onChange={setS("section")} required />
               </div>
               <div>
                 <label className="label">หลักสูตร</label>
@@ -409,7 +409,7 @@ export default function SectionsManager() {
           <form onSubmit={saveAssign} className="space-y-3">
             <div>
               <label className="label">เลือกผู้ช่วยสอน</label>
-              <select className="input" value={assignForm.user_id} onChange={(e) => setAssignForm({ ...assignForm, user_id: e.target.value })} required>
+              <select className="input" value={assignForm.user_id ?? ""} onChange={(e) => setAssignForm({ ...assignForm, user_id: e.target.value })} required>
                 <option value="">— เลือก —</option>
                 {users.filter((u) => u.active !== false).map((u) => <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>)}
               </select>

@@ -149,7 +149,7 @@ export default function BlackoutManager() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">วันเริ่มต้น</label>
-                <input type="date" className="input" value={form.start_date}
+                <input type="date" className="input" value={form.start_date ?? ""}
                   onChange={(e) => {
                     const start = e.target.value;
                     // default วันสิ้นสุด = วันเริ่มต้น (ถ้ายังว่าง หรือมาก่อนวันเริ่ม)
@@ -162,13 +162,13 @@ export default function BlackoutManager() {
               </div>
               <div>
                 <label className="label">วันสิ้นสุด</label>
-                <input type="date" className="input" value={form.end_date} min={form.start_date || undefined}
+                <input type="date" className="input" value={form.end_date ?? ""} min={form.start_date || undefined}
                   onChange={(e) => setForm({ ...form, end_date: e.target.value })} required />
               </div>
             </div>
             <div>
               <label className="label">เหตุผล</label>
-              <input className="input" value={form.reason}
+              <input className="input" value={form.reason ?? ""}
                 onChange={(e) => setForm({ ...form, reason: e.target.value })}
                 placeholder="เช่น ปิดภาคเรียน, วันหยุดราชการ" />
             </div>

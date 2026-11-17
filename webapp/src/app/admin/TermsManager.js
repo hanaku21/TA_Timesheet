@@ -179,13 +179,13 @@ export default function TermsManager() {
           <form onSubmit={save} className="space-y-3">
             <div>
               <label className="label">รหัสภาคการศึกษา *</label>
-              <input className="input" value={form.code} onChange={set("code")}
+              <input className="input" value={form.code ?? ""} onChange={set("code")}
                 placeholder="เช่น 2569/2 หรือ 2570/1" required disabled={editing} />
               {editing && <p className="mt-1 text-xs text-slate-400">แก้ไขรหัสไม่ได้ (เป็นตัวเชื่อมข้อมูลของทั้งภาค)</p>}
             </div>
             <div>
               <label className="label">ชื่อเต็ม</label>
-              <input className="input" value={form.name} onChange={set("name")} placeholder="ภาคการศึกษาที่ 2 ปีการศึกษา 2569" />
+              <input className="input" value={form.name ?? ""} onChange={set("name")} placeholder="ภาคการศึกษาที่ 2 ปีการศึกษา 2569" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

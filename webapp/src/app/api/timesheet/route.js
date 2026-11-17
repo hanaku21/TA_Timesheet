@@ -136,7 +136,7 @@ export async function POST(req) {
   const { data: assign } = await supabase
     .from("assignments")
     .select(
-      "id, section:sections ( id, curriculum_id, teaching_type, teaching_days, start_time, end_time, rate, expected_cost, tor_number )"
+      "id, section:sections ( id, curriculum_id, teaching_type, teaching_days, start_time, end_time, rate, expected_cost, tor_number, curriculum:curricula ( code ) )"
     )
     .eq("user_id", uid)
     .eq("section_id", section_id)
@@ -151,6 +151,7 @@ export async function POST(req) {
 
   // TOR contract window: if this section's tor_number has a period, dates must
   // fall within [start_date, end_date].
+  let torWindow = false;
   if (section.tor_number) {
     const { data: tp } = await supabase
       .from("tor_periods")
@@ -159,6 +160,7 @@ export async function POST(req) {
       .eq("term", term.code)
       .maybeSingle();
     if (tp && (tp.start_date || tp.end_date)) {
+      torWindow = true;
       const outside = dates.filter(
         (d) => (tp.start_date && d < tp.start_date) || (tp.end_date && d > tp.end_date)
       );
@@ -169,6 +171,22 @@ export async function POST(req) {
           { status: 400 }
         );
       }
+    }
+  }
+
+  // Term window (same rule the calendar applies): without a TOR contract window, dates must
+  // fall inside the term — except DII, which runs on its own calendar.
+  const isDii = String(section.curriculum?.code || "").toUpperCase() === "DII";
+  if (!torWindow && !isDii && (term.start_date || term.end_date)) {
+    const outside = dates.filter(
+      (d) => (term.start_date && d < term.start_date) || (term.end_date && d > term.end_date)
+    );
+    if (outside.length > 0) {
+      const fmt = (x) => (x ? x.split("-").reverse().join("/") : "—");
+      return NextResponse.json(
+        { error: `มีวันที่อยู่นอกช่วงภาคการศึกษา (${fmt(term.start_date)} – ${fmt(term.end_date)}): ${outside.join(", ")}` },
+        { status: 400 }
+      );
     }
   }
 

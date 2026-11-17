@@ -782,7 +782,7 @@ export default function TimesheetViewer() {
               <div className="mt-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="text-sm font-semibold text-slate-700">
-                    {calDates[selDay] ? "แก้ไขวันที่" : "เพิ่มวันที่"} {selDay.split("-").reverse().join("/")}
+                    {calDates[selDay] ? "แก้ไขวันที่" : "เพิ่มวันที่"} {`${selDay.slice(8, 10)}/${selDay.slice(5, 7)}/${Number(selDay.slice(0, 4)) + 543}`}
                   </div>
                   {calDates[selDay] && (
                     <div className="text-xs text-slate-500">

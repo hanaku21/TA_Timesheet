@@ -75,6 +75,22 @@ export async function POST(req) {
     return NextResponse.json({ error: "ไม่พบข้อมูล TOR ที่ถูกต้องในไฟล์" }, { status: 400 });
   }
 
+  // One TOR can appear on several lines (one line per course/section it covers). The table
+  // holds one row per TOR + term, and a single upsert cannot touch the same row twice, so
+  // merge the lines first: widest date window, largest amount, last non-empty note.
+  const byTor = new Map();
+  for (const r of rows) {
+    const cur = byTor.get(r.tor_number);
+    if (!cur) { byTor.set(r.tor_number, { ...r }); continue; }
+    if (r.start_date && (!cur.start_date || r.start_date < cur.start_date)) cur.start_date = r.start_date;
+    if (r.end_date && (!cur.end_date || r.end_date > cur.end_date)) cur.end_date = r.end_date;
+    if (r.duration_days != null && (cur.duration_days == null || r.duration_days > cur.duration_days)) cur.duration_days = r.duration_days;
+    if (r.amount != null && (cur.amount == null || r.amount > cur.amount)) cur.amount = r.amount;
+    if (r.note) cur.note = r.note;
+  }
+  rows.length = 0;
+  rows.push(...byTor.values());
+
   const { error } = await supabase
     .from("tor_periods")
     .upsert(rows, { onConflict: "tor_number,term" });

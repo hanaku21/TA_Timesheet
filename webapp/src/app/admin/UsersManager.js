@@ -198,36 +198,36 @@ export default function UsersManager() {
                   <option value="นาง">นาง</option>
                   <option value="นางสาว">นางสาว</option>
                   {form.title && !["นาย", "นาง", "นางสาว"].includes(form.title) && (
-                    <option value={form.title}>{form.title}</option>
+                    <option value={form.title ?? ""}>{form.title}</option>
                   )}
                 </select>
               </div>
               <div className="sm:col-span-2">
                 <label className="label">ชื่อ-นามสกุล *</label>
-                <input className="input" value={form.full_name} onChange={set("full_name")} required />
+                <input className="input" value={form.full_name ?? ""} onChange={set("full_name")} required />
               </div>
               <div className="sm:col-span-3">
                 <label className="label">อีเมล *</label>
-                <input className="input" type="email" placeholder="name@cmu.ac.th" value={form.email} onChange={set("email")} required />
+                <input className="input" type="email" placeholder="name@cmu.ac.th" value={form.email ?? ""} onChange={set("email")} required />
               </div>
               <div>
                 <label className="label">เบอร์โทร</label>
-                <input className="input" value={form.phone} onChange={set("phone")} />
+                <input className="input" value={form.phone ?? ""} onChange={set("phone")} />
               </div>
               <div>
                 <label className="label">ประเภทการจ้าง</label>
-                <select className="input" value={form.employment_type} onChange={set("employment_type")}>
+                <select className="input" value={form.employment_type ?? ""} onChange={set("employment_type")}>
                   {Object.entries(EMP_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </div>
               <div>
                 <label className="label">รหัสนักศึกษา</label>
-                <input className="input" value={form.student_id} onChange={set("student_id")} />
+                <input className="input" value={form.student_id ?? ""} onChange={set("student_id")} />
               </div>
               {form.employment_type !== "SCHOLARSHIP" && (
                 <div>
                   <label className="label">เลข TOR</label>
-                  <input className="input" value={form.tor_number} onChange={set("tor_number")} />
+                  <input className="input" value={form.tor_number ?? ""} onChange={set("tor_number")} />
                 </div>
               )}
               <div className="sm:col-span-3 mt-1 border-t border-slate-100 pt-2 text-xs font-semibold text-slate-500">
@@ -245,7 +245,7 @@ export default function UsersManager() {
                 <label className="label">รหัสผ่าน</label>
                 <input className="input" type="text"
                   placeholder={form.id ? "เว้นว่าง = คงเดิม" : "เว้นว่าง = ใช้เบอร์โทร (หรือ 0123456789)"}
-                  value={form.password} onChange={set("password")} />
+                  value={form.password ?? ""} onChange={set("password")} />
               </div>
             </div>
             {msg?.type === "error" && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{msg.text}</div>}
