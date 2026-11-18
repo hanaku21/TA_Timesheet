@@ -30,7 +30,7 @@ export default function NavBar({ name, role, employmentType }) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">
-              CT
+              TA
             </div>
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-slate-800">CAMT TA Timesheet</div>
